@@ -1,2 +1,22 @@
-book_filename: "bookdown-demo"
-chapter_name: "Chapter "
+new_session: yes
+
+rmd_files: [
+  "index.Rmd",
+  "intro.Rmd",
+
+  "beta-distribution.Rmd",
+  "empirical-bayes.Rmd",
+  "credible-intervals.Rmd",
+
+  "hypothesis-testing.Rmd",
+  "bayesian-ab.Rmd",
+
+  "regression.Rmd",
+  "hierarchical-bayes.Rmd",
+  "mixture-models.Rmd",
+  "dirichlet-multinomial.Rmd",
+
+  "ebbr-package.Rmd",
+  "simulation.Rmd",
+  "simulation-parameters.Rmd"
+]

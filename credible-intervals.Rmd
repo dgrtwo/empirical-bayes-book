@@ -1,0 +1,246 @@
+# Credible intervals
+
+```{r, echo = FALSE}
+library(knitr)
+opts_chunk$set(cache = TRUE, warning = FALSE, message = FALSE, tidy = FALSE, fig.height = 5, fig.width = 6.67, out.height="3in",out.width = "4in")
+options(digits = 3)
+
+library(ggplot2)
+theme_set(theme_bw())
+```
+
+In Chapter \@ref(empirical-bayes), we explored the method of empirical Bayes estimation to calculate useful proportions out of many pairs of success/total counts (e.g. $0/1$, $3/10$, $235/1000$). If we a batter gets with 0 hits in 2 at-bats, or 1 hit in 1 at-bat, we know we can't trust those proportions, and we can instead use information from the overall distribution (in the form of a prior) to improve our guess. Empirical Bayes gives a single value for each player that can be reliably used as an estimate.
+
+But sometimes we want to know more than just our "best guess," and instead wish to know how much uncertainty is present in our point estimate. In many cases like this, statisticians would use a [binomial proportion confidence interval](https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval)[^binomialinterval], but this doesn't bring in information from our whole dataset the way that empirical Bayesian estimation does. For example, the confidence interval for someone who gets 1 hit out of 3 at-bats would be $(`r round(binom.test(1, 3)$conf.int[1], 4)`, `r round(binom.test(1, 3)$conf.int[2], 4)`)$. We can indeed be quite confident that that interval contains the true batting average... but from our knowledge of batting averages, we could have drawn a much tighter interval than that! There's no way that the player's real batting average is .1 or .8: it probably lies in the .2-.3 region that most other players' do.
+
+[^binomialinterval]: For example, when the news reports that a political poll has a "plus or minus 3 percent margin of error", they're usually using this kind of confidence interval. You can compute it with the `prop.test` function in R.
+
+Here I'll show how to compute a **credible interval** using the empirical Bayes method. This will have a similar improvement relative to confidence intervals that the empirical Bayes estimate had to a raw batting average.
+
+## Setup
+
+We'll start with code that sets up the objects used and analyzed in this post.[^fromnowon]
+
+[^fromnowon]: From now on, each chapter will start with a section like this with code that sets up the chapter. If you're following along in code, this saves you from going back to earlier chapters to keep track of variables.
+
+```{r lahman_04}
+library(dplyr)
+library(tidyr)
+library(Lahman)
+
+career <- Batting %>%
+  filter(AB > 0) %>%
+  anti_join(Pitching, by = "playerID") %>%
+  group_by(playerID) %>%
+  summarize(H = sum(H), AB = sum(AB)) %>%
+  mutate(average = H / AB)
+
+career <- Master %>%
+  tbl_df() %>%
+  dplyr::select(playerID, nameFirst, nameLast) %>%
+  unite(name, nameFirst, nameLast, sep = " ") %>%
+  inner_join(career, by = "playerID")
+
+# values estimated by maximum likelihood in Chapter 3
+alpha0 <- 101.4
+beta0 <- 287.3
+
+career_eb <- career %>%
+    mutate(eb_estimate = (H + alpha0) / (AB + alpha0 + beta0))
+```
+
+The end result of this process is the `eb_estimate` variable in the `career_eb` dataset. This gives us a new estimate for each player's batting average; what statisticians call a **point estimate**. Recall that these new values tend to be pushed towards the overall mean (giving this the name "shrinkage").
+
+This shrunken value is generally more useful than the raw estimate: we can use it to sort our data, or feed it into another analysis, without worrying too much about the noise introduced by low counts. But there's still uncertainty in the empirical Bayes estimate, and *the uncertainty is very different for different players,* with more uncertainty for players with few at-bats, and less uncertainty for players with many. We may want not only a point estimate, but an interval of possible batting averages; one that will be wide for players we know very little about, and narrow for players with more information. Luckily, the Bayesian approach has a method to handle this.
+
+## Posterior distribution
+
+Consider that what we're really doing with empirical Bayes estimation is computing two new values for each player: $\alpha_1$ and $\beta_1$. These are the *posterior* shape parameters for each player's distribution, after the prior (which was estimated from the whole dataset) has been updated based on each player's evidence. They are computed as $\alpha_1=\alpha_0+H$ and $\beta_1=\beta_0+AB-H$.
+
+```{r career_eb_04, dependson = "lahman_04"}
+career_eb <- career_eb %>%
+  mutate(alpha1 = alpha0 + H,
+         beta1 = beta0 + AB - H)
+```
+
+Since we have these two parameters for each player's beta distribution, we can visualize the density of the posterior distribution for each, using the `dbeta` function in R. I'll pick a few of my favorites from the 1998 Yankee lineup (Figure \@ref(fig:yankeebeta)).
+
+```{r yankeebeta, dependson = "career_eb_04", echo = FALSE, fig.cap = "The posterior beta distribution for each of seven Yankee batters. The prior distribution is shown as a dashed curve."}
+yankee_1998 <- c("brosisc01", "jeterde01", "knoblch01", "martiti02",
+                 "posadjo01", "strawda01", "willibe02")
+
+yankee_1998_career <- career_eb %>%
+  filter(playerID %in% yankee_1998)
+
+library(tidyr)
+library(ggplot2)
+
+yankee_beta <- yankee_1998_career %>%
+  crossing(x = seq(.18, .33, .0002)) %>%
+  ungroup() %>%
+  mutate(density = dbeta(x, alpha1, beta1))
+
+ggplot(yankee_beta, aes(x, density, color = name)) +
+  geom_line() +
+  stat_function(fun = function(x) dbeta(x, alpha0, beta0),
+                lty = 2, color = "black") +
+  labs(x = "Batting average",
+       color = "Player")
+```
+
+Each of these curves is our probability distribution of what the player's batting average could be, after updating based on that player's performance. The empirical Bayes estimate that we reported in Chapter \@ref(empirical-bayes) is simply the peak of each[^meanmode], but this distribution is what we're really estimating.
+
+[^meanmode]: Technically, the peak (or **mode**) of the beta distributions is $\frac{\alpha-1}{\alpha+\beta-2}$, not the empirical Bayes estimate (or mean) of $\frac{\alpha}{\alpha+\beta}$, but those two become indistinguishable for large $\alpha$ and $\beta$.
+
+## Credible intervals
+
+These density curves are hard to interpret visually, especially as the number of players increases, and it can't be summarized into a table or text. We'd instead prefer to create a [credible interval](https://en.wikipedia.org/wiki/Credible_interval), which says that some percentage (e.g. 95%) of the posterior distribution lies within an particular region. For example, the credible interval for Derek Jeter is shown in Figure \@ref(fig:jeterinterval). 
+
+```{r jeterinterval, dependson = "yankee_beta", echo = FALSE, fig.cap = "The posterior beta distribution for Derek Jeter (3465 H / 11195 AB), with the 95\\% credible interval highlighted in red. The prior is shown as a dashed curve."}
+jeter <- yankee_beta %>%
+  filter(name == "Derek Jeter")
+
+jeter_pred <- jeter %>%
+  mutate(cumulative = pbeta(x, alpha1, beta1)) %>%
+  filter(cumulative > .025, cumulative < .975)
+
+jeter_low <- qbeta(.025, jeter$alpha1[1], jeter$beta1[1])
+jeter_high <- qbeta(.975, jeter$alpha1[1], jeter$beta1[1])
+
+jeter %>%
+  ggplot(aes(x, density)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = 0, ymax = density), data = jeter_pred,
+              alpha = .25, fill = "red") +
+  stat_function(fun = function(x) dbeta(x, alpha0, beta0),
+                lty = 2, color = "black") +
+  geom_errorbarh(aes(xmin = jeter_low, xmax = jeter_high, y = 0), height = 3.5, color = "red") +
+  xlim(.18, .34)
+```
+
+You can compute the edges of the credible interval quite easily using the [qbeta](https://stat.ethz.ch/R-manual/R-patched/library/stats/html/Beta.html) (quantile of beta) function in R. We just provide it the posterior `alpha1` and `beta1` parameters for each player.
+
+```{r yankee_confint, dependson = "yankee_beta"}
+yankee_1998_career <- yankee_1998_career %>%
+  mutate(low  = qbeta(.025, alpha1, beta1),
+         high = qbeta(.975, alpha1, beta1))
+```
+
+```{r yankee_confint_table, dependson = "yankee_confint", echo = FALSE}
+yankee_1998_career %>%
+  dplyr::select(-alpha1, -beta1, -eb_estimate) %>%
+  knitr::kable()
+```
+
+These credible intervals can be visualized in a plot with points and errorbars like Figure \@ref(fig:yankeeconfintplot). The vertical dashed red line is $\frac{\alpha_0}{\alpha_0+\beta_0}$: the mean batting average across history (based on our beta fit), that everything was being shrunk towards.
+
+```{r yankeeconfintplot, dependson = "yankee_confint", fig.height = 5, fig.width = 6.67, fig.cap = "95\\% credible intervals for each of seven Yankees. The points are the empirical Bayes estimates for each, and the vertical red line is the prior mean."}
+yankee_1998_career %>%
+  mutate(name = reorder(name, eb_estimate)) %>%
+  ggplot(aes(eb_estimate, name)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = low, xmax = high)) +
+  geom_vline(xintercept = alpha0 / (alpha0 + beta0), color = "red", lty = 2) +
+  xlab("Estimated batting average (w/ 95% interval)") +
+  ylab("Player")
+```
+
+Figure \@ref(fig:yankeebeta), which showed each player's posterior beta distribution, technically communicated more information, but this is far more readable, and communicates most of what we're interested in: the center of the distribution and the typical range of values.
+
+## Credible intervals and confidence intervals {#confidence-credible}
+
+Note that posterior credible intervals are similar to frequentist confidence intervals, but they are not the same thing. There's a philosophical difference, in that frequentists treat the true parameter as fixed while Bayesians treat it as a probability distribution. You can find one great explanation of the distinction [in this Cross Validated post](http://stats.stackexchange.com/questions/2272/whats-the-difference-between-a-confidence-interval-and-a-credible-interval).
+
+But there's also a very practical difference, in that credible intervals take prior information into account. Suppose we took 20 random players and constructed both frequentist confidence intervals and posterior credible intervals for each (Figure \@ref(fig:credible20)).
+
+```{r credible20, echo = FALSE, fig.cap = "Frequentist confidence intervals and Bayesian credible intervals for 20 random players. Each player's batting record is shown next to their name, and they are ordered in terms of increasing $\\mbox{AB}$."}
+career_eb <- career_eb %>%
+  mutate(low = qbeta(.025, alpha1, beta1),
+         high = qbeta(.975, alpha1, beta1))
+
+library(broom)
+
+set.seed(2015)
+
+some <- career_eb %>%
+  sample_n(20) %>%
+  mutate(name = paste0(name, " (", H, "/", AB, ")"))
+
+frequentist <- some %>%
+  group_by(playerID, name, AB) %>%
+  do(tidy(binom.test(.$H, .$AB))) %>%
+  ungroup() %>%
+  dplyr::select(playerID, name, estimate, low = conf.low, high = conf.high) %>%
+  mutate(method = "Confidence")
+
+bayesian <- some %>%
+  dplyr::select(playerID, name, AB, estimate = eb_estimate,
+                low = low, high = high) %>%
+  mutate(method = "Credible")
+
+combined <- bind_rows(frequentist, bayesian)
+
+combined %>%
+  mutate(name = reorder(name, -AB, na.rm = TRUE)) %>%
+  ggplot(aes(estimate, name, color = method, group = method)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = low, xmax = high)) +
+  geom_vline(xintercept = alpha0 / (alpha0 + beta0), color = "red", lty = 2) +
+  xlab("Estimated batting average") +
+  ylab("Player") +
+  labs(color = "")
+```
+
+These are sorted in order of how many times a player went up to bat (thus, how much information we have about them). Notice that once there's enough information, the credible intervals and confidence intervals are nearly identical. But in cases where batters got 1 or 2 hits out of 10, the credible interval is much narrower than the credible interval. This is because empirical Bayes brings in our knowledge from the full data, just as it did for the point estimate, so that we know it's not plausible for a batter to have an average close to 0 or as high as .5.
+
+### Calculating confidence intervals
+
+The relationship between credible and confidence intervals is particularly deep in the case of estimating a proportion. Two of the most common methods for constructing frequentist confidence intervals, Clopper-Pearson (the default in R's `binom.test` function, as shown in Figure \@ref(fig:credible20)) and Jeffreys, actually use the quantiles of the Beta distribution in very similar ways, which is the reason credible and confidence intervals start looking identical once there's enough information.
+
+\begin{table}
+
+```{r confinttable, echo = FALSE, results = "asis"}
+low_a <- paste0("$", c("\\alpha_0 + x", "1 / 2 + x", "x"), "$")
+low_b <- paste0("$", c("\\beta_0 + n - x", "1 / 2 + n - x", "n - x + 1"), "$")
+
+high_a <- paste0("$", c("\\alpha_0 + x", "1 / 2 + x", "x + 1"), "$")
+high_b <- paste0("$", c("\\beta_0 + n - x", "1 / 2 + n - x", "n - x"), "$")
+
+tab <- data.frame(Method = c("Credible interval", "Jeffreys", "Clopper-Pearson"),
+                  LowAlpha = low_a, LowBeta = low_b,
+                  HighAlpha = high_a, HighBeta = high_b)
+
+colnames(tab) <- c("Method", "$\\alpha_{\\mbox{low}}$", "$\\beta_{\\mbox{low}}$",
+                   "$\\alpha_{\\mbox{high}}$", "$\\beta_{\\mbox{high}}$")
+
+knitr::kable(tab, escape = FALSE, format = "latex")
+```
+
+\caption{\label{tab:confinttable}Formulae for computing a
+Bayesian credible interval, or a Jeffreys or Clopper-Pearson
+confidence interval.}
+
+\end{table}
+
+Table \@ref(tab:confinttable) shows the formulae for each of these intervals in terms the parameters one would use to the `qbeta` function in R. A particular 95% interval would be calculated as:
+
+$$[\mbox{qbeta}(0.025, \alpha_{\mbox{low}}, \beta_{\mbox{low}}), \mbox{qbeta}(0.975, \alpha_{\mbox{high}}, \beta_{\mbox{high}})]$$
+
+For example, the Clopper-Pearson confidence interval for a player with 10 hits out of 30 at-bats would be `qbeta(0.025, 10, 30 - 10 + 1)`=`r qbeta(0.025, 10, 30 - 10 + 1)` for the lower bound, and `qbeta(0.975, 10 + 1, 30 - 10)`=`r qbeta(0.975, 10 + 1, 30 - 10)` for the upper bound.
+
+Notice that the Jeffreys prior is identical to the Bayesian credible interval when $\alpha_0=\frac{1}{2};\beta_0=\frac{1}{2}$. This is called an **uninformative prior** or a [Jeffreys prior](https://en.wikipedia.org/wiki/Jeffreys_prior), and is basically pretending that we know *nothing* about batting averages. The Clopper-Pearson interval is a bit odder, since its priors are different for the lower and upper bounds.[^clopperpearson] This makes it slightly more conservative (wider) than the Jeffrey's prior, with a lower lower bound and a higher upper bound.
+
+[^clopperpearson]: In fact Clopper-Pearson isn't using a proper prior for either, since it is effectively setting $\alpha_0=0$ for the low bound and $\beta_0=0$ for the high bound, which are both illegal parameters for the beta distribution.
+
+One important mathematical observation is that the Bayesian credible interval, the Clopper-Pearson interval, and the Jeffreys interval all start looking more and more identical when:
+
+* the evidence is more informative (large $n$), or
+* the prior is less informative (small $\alpha_0$, small $\beta_0$)
+
+This fits what we saw in Figure \@ref(fig:credible20). Bayesian methods are especially helpful relative to frequentist methods when the prior makes up a relatively large share of the information.
+
+Like most applied statisticians, I don't consider myself too attached to the Bayesian or frequentist philosophies, but rather use whatever method is useful for a given situation. But while I've seen non-Bayesian approaches to point estimate shrinkage[^jamesstein], I haven't yet seen a principled way of shrinking confidence intervals by sharing information across observations. This makes empirical Bayes posteriors quite useful!
+
+[^jamesstein]: One example of a frequentist approach to shrinkage is [James-Stein estimation](https://en.wikipedia.org/wiki/James%E2%80%93Stein_estimator), which was one of the first rigorous methods to take advantage of "sharing information across observations."
+
+It is not necessarily the case for all methods that there is a close equivalent between a confidence interval and a credible interval with an uninformative prior. But it happens more often than you might think! As [Rasmuth Bååth puts it](https://github.com/rasmusab/bayesian_first_aid), "Inside every classical test there is a Bayesian model trying to get out."

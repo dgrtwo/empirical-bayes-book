@@ -1,0 +1,179 @@
+# (PART) Empirical Bayes {-}
+
+# The beta distribution {#beta-distribution}
+
+```{r echo = FALSE}
+library(knitr)
+opts_chunk$set(cache = TRUE, warning = FALSE, message = FALSE, tidy = FALSE,
+               fig.width = 5, fig.height = 3, dev = "cairo_pdf")
+
+library(ggplot2)
+theme_set(theme_bw())
+options(tibble.print_min = 6, scipen = 7)
+```
+
+First, let's get to know the beta distribution, which plays an essential role in the methods described in this book. The beta is a probability distribution with two parameters $\alpha$ and $\beta$. It can take a couple of shapes (Figure \@ref(fig:betashapes)), all of them constrained to between 0 and 1.
+
+```{r betashapes, echo = FALSE, fig.cap = "The density of the beta distribution for several selected combinations of parameters."}
+library(dplyr)
+
+sim <- data_frame(a = c(1, 3, 50, 20),
+                  b = c(2, 3, 10, 20)) %>%
+  group_by(a, b) %>%
+  do(data_frame(x = seq(0, 1, .001), y = dbeta(x, .$a, .$b))) %>%
+  mutate(Parameters = paste0("\u03B1 = ", a, ", \u03B2 = ", b)) %>%
+  ungroup() %>%
+  mutate(Parameters = factor(Parameters, levels = unique(Parameters)))
+
+ggplot(sim, aes(x, y, color = Parameters)) +
+  geom_line() +
+  xlab("Batting average") +
+  ylab("Density of beta")
+```
+
+Some distributions, like the normal, the binomial, and the uniform, are described in statistics education alongside their real world interpretations and applications, which means beginner statisticians usually gain a solid understanding of them. But I've found that the beta distribution is rarely explained in these intuitive terms- if its usefulness is addressed at all, it's often with dense terms like "conjugate prior" and "order statistic."[^betadensity] This is a shame, because the intuition behind the beta is pretty cool.
+
+[^betadensity]: For example, mathematicians might start by teaching the probability density function of the beta that's shown in Figure \@ref(fig:betashapes), which happens to be $\frac{x^{\alpha-1}(1-x)^{\beta-1}}{B(\alpha,\beta)}$, where $B$ is the [beta function](https://en.wikipedia.org/wiki/Beta_function). But I don't get much out of a definition like that; I like to see how a distribution is useful in practice.
+
+In practice, the beta distribution is good at representing a probability distribution *of probabilities*- that is, it represents all the possible values of a probability when we don't know what that probability is. In this chapter, I'll introduce an example that we'll follow through the rest of the book.
+
+## Batting averages
+
+The sport of baseball has a long history of tracking and analyzing statistics, a field called sabermetrics. One of the most commonly used statistics in baseball is the [batting average](http://en.wikipedia.org/wiki/Batting_average#Major_League_Baseball), which is calculated as the number of **hits (H)** divided by the number of **at-bats (AB)**:
+
+$$\mbox{Batting Average}=\frac{H}{AB}$$
+
+A player's batting average is therefore a percentage between 0 and 1. .270 (27%) is considered a typical batting average, while .300 (30%) is considered an excellent one.
+
+Imagine we have a baseball player, and we want to predict what his season-long batting average will be. You might say we can just use his batting average so far- but this will be a very poor measure at the start of a season! If a player goes up to bat once and gets a single, his batting average is briefly 1.000, while if he strikes out or walks, his batting average is 0.000. It doesn't get much better if you go up to bat five or six times- you could get a lucky streak and get an average of 1.000, or an unlucky streak and get an average of 0, neither of which are a remotely good predictor of how you will bat that season.
+
+Why is your batting average in the first few hits not a good predictor of your eventual batting average? When a player's first at-bat is a strikeout, why does no one predict that he'll never get a hit all season? Because we're going in with *prior expectations.* We know that in history, most batting averages over a season have hovered between something like .210 and .360, with some extremely rare exceptions on either side. We know that if a player gets a few strikeouts in a row at the start, that might indicate he'll end up a bit worse than average, but we know he probably won't deviate from that .210-.360 range. Bayesian statistics is a way of modeling these prior successes explicitly.
+
+The number of hits a player gets out of his at-bats is an example of a **binomial distribution,** which models a count of successes out of a total.[^binomial] Since it's a binomial, the best way to represent the prior expectations is with the beta distribution. The prior is representing, before we've seen the player take his first swing, what we roughly expect his batting average to be. The domain of the beta distribution is $(0, 1)$, just like a probability, so we already know we're on the right track- but the appropriateness of the beta for this task goes far beyond that.
+
+[^binomial]: For example, we might say that out of 100 at-bats, the number of hits a player gets is distributed according to $\mbox{Binomial}(100, p)$, where $p$ is the probability of each at-bat being a hit (and therefore is the batting average that we'd like to estimate). This is equivalent to flipping 100 coins, each with a $p$ probability of heads.
+
+## Updating
+
+We expect that the player's season-long batting average will be most likely around .27, but that it could reasonably range from .21 to .35. This can be represented with a beta distribution with parameters $\alpha=81$ and $\beta=219$. In later chapters we'll go into the details of how we can select parameters for a beta distribution, for now just know that they were chosen so that the mean and variance would be realistic for batting averages.
+
+```{r setup, echo = FALSE}
+library(ggplot2)
+library(dplyr)
+
+sim <- data.frame(a = c(81, 82, 81 + 100),
+                  b = c(219, 219, 219 + 200)) %>%
+  group_by(a, b) %>%
+  do(data_frame(x = seq(0, .5, .001), y = dbeta(x, .$a, .$b))) %>%
+  mutate(Parameters = paste0("\u03B1 = ", a, ", \u03B2 = ", b)) %>%
+  ungroup() %>%
+  mutate(Parameters = factor(Parameters, levels = unique(Parameters)))
+```
+
+```{r plot1, dependson = "setup", echo = FALSE, fig.cap = "The density of the prior distribution: $\\mbox{Beta}(81,219)$. The x-axis represents the distribution of possible batting averages, the y-axis represents the probability density: how likely the batting average is to fall at a particular point."}
+sim %>%
+  filter(a == 81) %>%
+  ggplot(aes(x, y, color = Parameters)) +
+  geom_line() +
+  xlab("Batting average") +
+  ylab("Density of beta")
+```
+
+In Figure \@ref(fig:plot1), the x-axis represents the distribution of possible batting averages, and the y-axis represents the probability density of the beta distribution: how likely the batting average is to fall at a particular point. The beta distribution is representing a probability distribution *of probabilities*.
+
+Here's why the beta distribution is so appropriate for modeling the binomial. Imagine the player gets a single hit. His record for the season is now "1 hit; 1 at bat." We have to then **update** our probabilities- we want to shift this entire curve over just a bit to reflect our new information. This is the Bayesian philosophy in a nutshell: we start with a prior distribution, see some evidence, then update to a **posterior** distribution.
+
+The math for proving this is a bit involved ([it's shown here](http://en.wikipedia.org/wiki/Conjugate_prior#Example)), the result is *very simple*. The new beta distribution will be:
+
+$$\mbox{Beta}(\alpha_0+\mbox{hits}, \beta_0+\mbox{misses})$$
+
+where $\alpha_0$ and $\beta_0$ are the parameters we started with- that is, 81 and 219. Thus, in this case, $\alpha$  has increased by 1 (his one hit), while $\beta$ has not increased at all (no misses yet). That means our new distribution is $\mbox{Beta}(81+1, 219)$.
+
+```{r plot3, dependson = "setup", echo = FALSE, fig.cap = "The density of the prior beta distribution, alongside the posterior after seeing 1 hit ($\\mbox{Beta}(82, 219)$), or 100 hits out of 300 at-bats ($\\mbox{Beta}(181, 419))$."}
+ggplot(sim, aes(x, y, color = Parameters)) +
+  geom_line() +
+  xlab("Batting average") +
+  ylab("Density of beta")
+```
+
+Figure \@ref(fig:plot3) shows the prior distribution (red) and the posterior after a single hit (green). Notice that it has barely changed at all- the change is almost invisible to the naked eye! That's because one hit doesn't really mean anything. If we were a scout deciding whether to hire this player, we wouldn't have learned anything from the one hit.
+
+However, the more the player hits over the course of the season, the more the curve will shift to accommodate the new evidence, and furthermore the more it will narrow to reflect that we have more proof. Let's say halfway through the season he has been up to bat 300 times, hitting 100 out of those times. The new distribution would be $\mbox{Beta}(81+100, 219+200)=\mbox{Beta}(181, 419)$.
+
+Notice in Figure \@ref(fig:plot3) that the new curve (in blue) is now both thinner and shifted to the right (higher batting average) than it used to be- we have a better sense of what the player's batting average is.
+
+### Posterior mean
+
+One of the most interesting outputs of this formula is the expected value of the resulting beta distribution, which we can use as our new estimate. The expected value (mean) of the beta distribution is
+
+$$\frac{\alpha}{\alpha+\beta}$$
+
+Thus, after 100 hits of 300 at-bats, the expected value of the new beta distribution is
+
+$$\frac{82+100}{82+100+219+200}=.303$$
+
+Notice that it is lower than the raw estimate of $\frac{100}{100+200}=.333$, but higher than the estimate you started the season with $\frac{81}{81+219}=.270$: it is a combination of our prior expectations and our estimates. You might notice that this formula is equivalent to adding a "head start" to the number of hits and non-hits of a player: you're saying "start each player off in the season with 81 hits and 219 non hits on his record").
+
+## Conjugate prior {#conjugate-prior}
+
+Why is it so easy to update the beta distribution from $\beta(\alpha_0,\beta_0)$ to $\beta(\alpha_0+H,\beta_0)$? Because the beta distribution is the **conjugate prior** of the binomial: that just means that it's a particularly convenient distribution. The math for proving this is [all available](http://en.wikipedia.org/wiki/Conjugate_prior#Example). But how can we get a feel for it?
+
+Imagine you were a talent scout trying to estimate the "true batting average"- the probability of a hit- for a player with a 100/300 record. It would be nice to say "of all the players I've ever seen that batted 100/300, how good did they turn out to be?" This is unrealistic- we haven't seen very many players historically with that exact record. But when we have our **prior distribution**, we can build our own dataset of players, and look at the ones with 100/300.
+
+Let's say we simulated ten million players. According to our prior expectations, they will be distributed according to a $\beta(81, 219)$ distribution (generated with the `rbeta` function in R). From each of them, we'll give them 300 chances at-bat, just like our 100/300 player.[^dplyr]
+
+[^dplyr]: Note that we keep the two vectors, `true_average` and `hits`, in a `data_frame`. This is a useful habit for "tidy" simulation since it can then be used with the dplyr and tidyr packages, and a practice we'll generally continue throughout the book.
+
+```{r simulations}
+library(dplyr)
+
+num_trials <- 10e6
+
+simulations <- data_frame(
+  true_average = rbeta(num_trials, 81, 219),
+  hits = rbinom(num_trials, 300, true_average)
+)
+
+simulations
+```
+
+That's a lot of players, and we know the true batting average for every one of them. How many of them got 100/300, so we can compare them to our hypothetical player?
+
+```{r hit_100, dependson = "simulations"}
+hit_100 <- simulations %>%
+  filter(hits == 100)
+
+hit_100
+```
+
+What distribution of batting averages did these $100 / 300$ players have have? How good was the median player? We can tell with a histogram (Figure \@ref(fig:hit100hist)).
+
+```{r hit100hist, dependson = "hit_100", echo = FALSE, fig.cap = "Histogram of the true batting average of all the players who got exactly 100 hits. Shown in red is the density of $\\mbox{Beta}(81+100,219+200)$."}
+dens <- function(x) dbeta(x, 81 + 100, 219 + 200)
+
+ggplot(hit_100, aes(true_average)) +
+  geom_histogram(aes(y = ..density..)) +
+  stat_function(color = "red", fun = dens) +
+  labs(x = "Batting average of players who got 100 H / 300 AB")
+```
+
+Notice the distribution of these batting averages. Our prior distribution may have contained batters with a true batting average of .2, but they never got 100/300 in our simulations. And while it is easy for a batter with a .330 probability to get 100/300, there weren't many of them in the prior. And the median player who got 100/300 has a true batting average of about .3: that's our posterior estimate.
+
+We can also confirm the math about the conjugate prior: the distribution of players precisely matches our $\beta(81+100,219+200)$ posterior, shown in red. This shows what Bayesian updating is really doing- it's asking "out of our prior, what kinds of players would end up with evidence like this?"
+
+What if the player had gotten 60 hits, or 80 hits, instead of 100? We could plot the density of each of those subsets of the simulations, as shown in Figure \@ref(fig:multipleposteriors).[^showcode]
+
+[^showcode]: Notice that unlike the previous histogram, I chose to show this code as a way to help understand what is being visualized. Throughout the book I often make such judgment calls about when showing code can help explain a visualization.
+
+```{r multipleposteriors, dependson = "simulations", fig.cap = "The density of the true batting average of subsets of the simulated players, specifically selecting players who had a record of 60/300, 80/300, or 100/300."}
+simulations %>%
+  filter(hits %in% c(60, 80, 100)) %>%
+  ggplot(aes(true_average, color = factor(hits))) +
+  geom_density() +
+  labs(x = "True average of players with H hits / 300 at-bats",
+       color = "H")
+```
+
+We can see that the shape of the posteriors are be similar (following a beta distribution), but that they shift to accomodate the evidence. Thus, the "simulate from the prior, pull out the ones who matched our evidence" approach was able to combine the prior and the evidence.
+
+We won't need to keep generating millions of players in rest of this book: we'll just take the "add hits to $\alpha_0$, add misses to $\beta_0$" approach for granted. We'll revisit the approach of simulating data in Chapter \@ref(simulation), where we'll use it to test and evaluate our methods. Simulation can be useful for more than just checking the math: when Bayesian statisticians work with distributions that don't have a simple conjugate prior, they often use simulation approaches (such as [Metropolis-Hastings](https://en.wikipedia.org/wiki/Metropolis%E2%80%93Hastings_algorithm) or [Gibbs sampling](https://en.wikipedia.org/wiki/Gibbs_sampling)) that aren't that different from our approach here.

@@ -1,0 +1,341 @@
+# The multinomial and the Dirichlet
+
+```{r, echo = FALSE}
+library(knitr)
+opts_chunk$set(cache = TRUE, warning = FALSE, message = FALSE, tidy = FALSE, fig.height = 5, fig.width = 6.67, out.height = "3in", out.width = "4in")
+options(digits = 4)
+
+library(ggplot2)
+theme_set(theme_bw())
+library(scales)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+So far in this book, we've been focusing on the batting average (the number of hits divided by the number of at-bats) as a summary of each player's batting ability. Besides being one of the most common baseball statistics, it's a perfect example of the binomial distribution.
+
+But this over-simplifies what makes batters contribute to a team's offense, because not all hits are equal! Each hit could be a single, double, triple, or home run.[^single] A batting average counts each of these results identically, but a player would much rather advance to a triple or home run than get a single.
+
+[^single]: If you don't follow baseball, just know that these relate to how far a player gets to advance around the baseball diamond after their hit, based on the strength of their hit and how well the other team fielded the ball. Advancing farther (with a double, triple, or especially a home run) is better than a single.
+
+In this chapter, we're going to consider a different measure of batting skill: [slugging percentage](https://en.wikipedia.org/wiki/Slugging_percentage), which sabermetricians generally prefer to batting average as a measure of offensive power. The catch is that we are no longer dealing with a "success / total" model, but rather describing multiple categories (singles, doubles, and so on) out of the total at-bats. This means we have to move away from the binomial and the beta, and introduce two new distributions: the **multinomial** and the **Dirichlet**.
+
+## Setup
+
+Until now we've only needed H (hits) and AB (at-bats) from the Lahman baseball database (as well as handedness and time in Chapter \@ref(hierarchical-modeling)), but now we need to extract the number of singles, doubles, triples, and home runs from each player over their entire career.
+
+```{r hit_types}
+library(Lahman)
+library(dplyr)
+library(tidyr)
+
+pitchers <- Pitching %>%
+  group_by(playerID) %>%
+  summarize(gamesPitched = sum(G)) %>%
+  filter(gamesPitched > 3)
+
+player_names <- Master %>%
+  transmute(playerID, name = paste(nameFirst, nameLast))
+
+# include the "bats" (handedness) and "year" column for later
+hit_types <- Batting %>%
+  filter(AB > 0) %>%
+  anti_join(pitchers, by = "playerID") %>%
+  rename(Double = X2B, Triple = X3B) %>%
+  group_by(playerID) %>%
+  summarize_each(funs(sum(., na.rm = TRUE)), AB, H, Double, Triple, HR) %>%
+  inner_join(player_names, by = "playerID") %>%
+  transmute(playerID, name, AB, H,
+            Single = H - Double - Triple - HR,
+            Double, Triple, HR,
+            NonHit = AB - H)
+```
+
+Here's the data we've collected for a few players.
+
+```{r echo = FALSE}
+hit_types %>%
+  head(6) %>%
+  select(-playerID) %>%
+  knitr::kable()
+```
+
+For example, Hank Aaron got 3771 hits out of 12,364 at-bats, and these hits included 755 home-runs (one of the highest records in history).
+
+### Slugging percentage
+
+These outcomes make up a percentage of each player's total hits. Figure \@ref(fig:typehistograms) shows the distribution of each of these percentages.
+
+```{r hit_types_gathered, echo = FALSE}
+library(tidyr)
+
+hit_types_gathered <- hit_types %>%
+  select(-H) %>%
+  gather(type, value, -playerID, -name, -AB) %>%
+  mutate(percent = value / AB)
+```
+
+```{r typehistograms, dependson = "hit_types_gathered", echo = FALSE, fig.cap = "Percentages of each players' hits that are made up of singles, doubles, triples, or home runs."}
+library(ggplot2)
+theme_set(theme_bw())
+
+hit_type_order <- c("Single", "Double", "Triple", "HR")
+
+hit_types_gathered %>%
+  filter(AB > 500, type != "NonHit") %>%
+  mutate(type = factor(type, hit_type_order)) %>%
+  ggplot(aes(value / AB)) +
+  geom_histogram() +
+  facet_wrap(~type, scales = "free_y")
+```
+
+We can see that the most common kind of hit is a single, followed by doubles, with triples being the rarest type of hit.[^triples] Notice that each of these distributions looks roughly like a beta distribution; that will become important later.
+
+[^triples]: Triples are rarest because any time the ball gets hit out of the park counts as a home run, but good outfielders can usually stop a player from getting to third base. You have to be pretty fast to get a triple in professional baseball!
+
+In order to take these particular categories of hits into account, we can use a slugging percentage (abbreviated SLG). This is computed as:
+
+$$\mbox{SLG}=\frac{\mbox{Singles}+2\cdot\mbox{Doubles}+3\cdot\mbox{Triples}+4\cdot\mbox{HR}}{\mbox{AB}}$$
+
+Notice that unlike the batting average, this gives more weight to more useful types of hits, particularly home runs. Also notice that this will lie between 0 (if a player has no hits) and 4.000 (if a player's hits were entirely home runs).
+
+It's straightforward to use R to compute this for each player.
+
+```{r hit_types_slugging, dependson = "hit_types"}
+hit_types <- hit_types %>%
+  mutate(slugging = (Single + 2 * Double + 3 * Triple + 4 * HR) / AB)
+```
+
+Much like in Chapter \@ref(empirical-bayes), we might be interested in the highest slugging averages across all players.
+
+```{r dependson = "hit_types_slugging", echo = FALSE}
+hit_types %>%
+  arrange(desc(slugging)) %>%
+  select(-playerID, -AB) %>%
+  head(6) %>%
+  knitr::kable()
+```
+
+Just as we saw when we examined players with the highest batting average, this definitely isn't what we're looking for. The top slugging averages are dominated by players with a single triple, or a single and a home run. We need a way to estimate trustworthy slugging averages in the presence of noise.
+
+Empirical Bayes comes to the rescue once again!
+
+## The Dirichlet-multinomial distribution
+
+In the rest of this book, we've been assuming that there were two possible outcomes from each at-bat: a hit, or non-hit. Since there were two possible outcomes (a hit and a non-hit), we were able to represent it as a binomial, like a coin flip.
+
+Now that we're examining five types of hits, we need a new distribution.
+
+### Multinomial distribution
+
+There are five possible outcomes from each at-bat:
+
+* Single
+* Double
+* Triple
+* Home run
+* Non-hit
+
+Rather than a coin flip like the binomial, this is like a die roll: in this case, a five sided die where each side has a probability of coming up. This is described by the **multinomial** distribution.
+
+The multinomial distribution is characterized by two parameters: $n$, here the number of at-bats, and $p_{1\ldots k}$, a vector of probabilities for each category (here $k=5$). For example, if all five types were equally likely, $p$ would be the vector $(.2, .2, .2, .2, .2)$.
+
+We can use the `rmultinom()` function to simulate draws from the multinomial. Here we're simulating 3 draws, where each of the 5 categories is equally likely.
+
+```{r}
+rmultinom(3, 100, c(.2, .2, .2, .2, .2))
+```
+
+This results in a matrix, where each column is a draw from the multinomial, and each row is a category of the outcome. Notice that each of these columns adds up to 100, the total number of "at-bats". 
+
+We could change the vector of probabilities so that, for example, the first two category are relatively unlikely, the next two more likely, and the last outcome the most likely.
+
+```{r}
+rmultinom(3, 100, c(.05, .05, .2, .2, .5))
+```
+
+In the batting model, each of these rows could represent one of the categories of hit, such as a single, a double, or a non-hit.[^multinomspecial]
+
+[^multinomspecial]: Notice that the binomial is therefore a special case of the multinomial, in the case that $k=2$.
+
+### Dirichlet distribution
+
+The binomial had two categories (success and failure), and it had a convenient conjuate prior of the beta distribution. This meant that if our prior was a beta distribution and you observed some evidence, out posterior would also be a beta distribution.
+
+There's an equivalent conjugate prior for the multinomial distribution, which is called the **Dirichlet distribution**. Instead of parameters $\alpha$ and $\beta$ like the beta distribution, it has parameters $\alpha_{1\ldots k}$: one value for each category of outcome.
+
+The Dirichlet distribution isn't built into R, but we can use functions such as `rdiric()` from the VGAM package [@R-VGAM] to simulate draws from it.[^VGAM]
+
+[^VGAM]: Note that while `rmultinom()` creates one column per draw, `rdiric()` creates one row for each draw. Also note that in these examples, I'm using `VGAM::` rather than loading it because the VGAM package loads several functions that conflict with dplyr.
+
+```{r}
+VGAM::rdiric(3, c(1, 1, 1, 1, 1))
+```
+
+Notice that each draw from the Dirichlet (each row) is made up of values that sum to 1. Just like the beta distribution could be used to generate a probability, this can be used to generate an allocation of probabilities across $k$ (5) outcomes.
+
+Intuitively, we can think of the Dirichlet distribution as being governed by two properties:
+
+* The higher the relative value of one parameter $\alpha_i / \sum{\alpha_{1\ldots k}}$, the more probability mass that category $i$ tends to take up
+* The higher the total value $\sum{\alpha_{1\ldots k}}$, the less variance there is within each category.
+
+```{r sim, echo = FALSE}
+set.seed(2017)
+library(purrr)
+
+sim <- data_frame(parameters = list(c(1, 1, 1, 1, 1),
+                             c(5, 2, 2, 1, 1),
+                             c(50, 20, 20, 10, 10)),
+           name = map_chr(parameters, paste, collapse = ", ")) %>%
+  mutate(simulation = map(parameters, ~ VGAM::rdiric(1e5, .))) %>%
+  unnest(map(simulation, reshape2::melt, varnames = c("rep", "category")))
+```
+
+```{r dirichlethistogram, dependson = "sim", echo = FALSE, fig.cap = "Histograms of simulated values from the Dirichlet distribution. Each row of graphs is one set of parameters, such as $(1,1,1,1,1)$, and each column is one of the five categories.", fig.width = 8, fig.height = 6}
+ggplot(sim, aes(value)) +
+  geom_histogram(binwidth = .05, boundary = 0) +
+  facet_grid(name ~ category, scales = "free_y") +
+  xlab("Value from Dirichlet simulation")
+```
+
+For example, consider Figure \@ref(fig:dirichlethistogram), which shows histograms simulated from the Dirichlet distribution for three possible sets of parameters (shown on the right-hand side). Notice that since a draw from the Dirichlet is a vector of $k$ values, a simulation of the Dirichlet needs to show one histogram for each category.
+
+When the parameters are $(1, 1, 1, 1, 1)$, the five distributions are equal, each having a mean of .2. When they are $(5,2,2,1,1)$, the probability mass shifts towards the categories with the higher $\alpha_i$. The means are then, in turn, .5, .2, .2. .1, and .1. Thus, the relative size of the $\alpha_i$ values control which probabilities end up higher.
+
+Besides the relative sizes of the parameters, the total $\sum{\alpha_{1\ldots k}}$ also matters. When the parameters are $(500,200,200,100,100)$ (bottom row of Figure \@ref(fig:dirichlethistogram)), the means are the same as when the parameters were $(5,2,2,1,1)$. However, there is much less variation within each group.
+
+Notice that these properties, when considered within each individual category, are similar to how the beta distribution behaves (in which $\frac{\alpha}{\alpha+\beta}$ controlled the mean, and $\alpha+\beta$ affected the variance). Since this is the conjugate prior to the multinomial while the beta is conjugate prior to the binomial, this makes sense!
+
+### Fitting a Dirichlet-multinomial distribution
+
+Just as we fit the beta-binomial distribution to batting average in Chapter \@ref(empirical-bayes), we'll have to fit a Dirichlet-multinomial distribution to this data to use it as a prior. The fastest and easiest way I've found to fit a Dirichlet-multinomial distribution is the (helpfully named) DirichletMultinomial package from Bioconductor [@R-DirichletMultinomial].[^bioconductor]
+
+[^bioconductor]: If you haven't used Bioconductor packages before, [see here](https://www.bioconductor.org/packages/release/bioc/html/DirichletMultinomial.html) for instructions on installing it.
+
+```{r dm_fit, dependson = "hit_types"}
+hit_500 <- hit_types %>%
+  filter(AB >= 500)
+
+hit_matrix <- hit_500 %>%
+  select(Single, Double, Triple, HR, NonHit) %>%
+  as.matrix()
+
+dm_fit <- DirichletMultinomial::dmn(hit_matrix, 1)
+```
+
+The broom package doesn't have a tidying method for this type of object (`DMN`), but we can write one right now so that it's easy to extract parameters from it as a data frame.
+
+```{r dm_params, dependson = "dm_fit"}
+library(broom)
+
+tidy.DMN <- function(x, ...) {
+  ret <- as.data.frame(x@fit)
+  tbl_df(fix_data_frame(ret, c("conf.low", "estimate", "conf.high")))
+}
+
+dm_params <- tidy(dm_fit)
+dm_params
+```
+
+How did these parameters compare to the data? Let's compare the expected density to the actual distribution for each of the categories of hits (\@ref(fig:dirichlethist)).
+
+```{r dirichlethist, dependson = "hit_types_gathered", echo = FALSE, fig.cap = "The density of the Dirichlet distribution as fit by maximum likelihood, compared to the histogram of percentages for each type of hit."}
+# use marginal beta, easier to compute
+total <- sum(dm_params$estimate)
+
+dirichlet_density <- hit_types_gathered %>%
+  filter(type != "NonHit") %>%
+  distinct(type) %>%
+  inner_join(dm_params, by = c(type = "term")) %>%
+  crossing(percent = seq(0, .3, .005)) %>%
+  mutate(type = factor(type, hit_type_order)) %>%
+  mutate(density = dbeta(percent, estimate, total - estimate))
+
+hit_types_gathered %>%
+  filter(AB > 500, type != "NonHit") %>%
+  mutate(type = factor(type, hit_type_order)) %>%
+  ggplot(aes(percent)) +
+  geom_histogram(aes(y = ..density..), binwidth = .004) +
+  geom_line(aes(y = density), color = "red", data = dirichlet_density) +
+  facet_wrap(~type, scales = "free_y") +
+  xlab("% of at-bats") +
+  ylab("Density")
+```
+
+Notice that the fit was quite good, but not perfect. While the fit follows the distribution of singles and triples closely, it overestimated the variance in doubles, and underestimated the variance in home runs. There are a few possible reasons, but it's still good enough that we can use it for empirical Bayes shrinkage of the slugging average.
+
+## Updating the posterior distribution
+
+Recall that when updating a beta prior with parameters $\alpha_0$ and $\beta_0$, the posterior beta distribution was:
+
+$$\mbox{Beta}(\alpha_0+\mbox{Hits},\beta_0+\mbox{Misses})$$
+
+The Dirichlet works in a similar way. Suppose our Dirichlet has five categories (as we have in this batting example), with prior parameters $\alpha_0^{(1\ldots 5)}$.[^multiplek] Then suppose we obesrve counts in the five categories: $x_1$ being the number of singles, $x_2$ the number of doubles, and so on.
+
+Our new prior would be:
+
+[^multiplek]: Almost any mathematically rigourous discussion of the Dirichlet would treat $\alpha_0$ as a vector of length $k$. I'm referring to 5 categories here to make it especially clear what we're doing with the number of singles, doubles, triples, etc, rather than explaining it in mathematically general terms.
+
+$$\mbox{Dirichlet}(\alpha_0^{(1)}+x_1,\alpha_0^{(2)}+x_2,\alpha_0^{(3)}+x_3,\alpha_0^{(4)}+x_4,\alpha_0^{(5)}+x_5)$$
+
+Thus, much as the beta prior starts a player off with a certain number of hits and misses, the Dirichlet prior starts a player off with a number of singles, doubles, triples, home-runs, and misses.
+
+### Empirical Bayes shrinkage of slugging percentage
+
+You can use the Dirichlet prior, and the "pseudo-counts" that it starts each category off with, to shrink slugging percentages for each player.
+
+```{r par, dependson = "dm_params"}
+# Extracting the pseudo-counts into a one-row data frame
+par_total <- sum(dm_params$estimate)
+par <- dm_params %>%
+  select(term, estimate) %>%
+  spread(term, estimate)
+
+par
+```
+
+For example, to perform empirical Bayes shrinkage on the slugging percentage, we'd add `r par$Double` to the number of doubles, `r par$HR` to the number of home runs, and so on, and *then* compute the slugging percentage. This is straightforward to implement.
+
+```{r hit_types_eb, dependson = c("par", "hit_types")}
+w <- c(1:4, 0)
+slugging_mean <- sum(w * dm_params$estimate) / sum(dm_params$estimate)
+slugging_mean
+
+hit_types_eb <- hit_types %>%
+  mutate(slugging_eb = ((Single + par$Single) +
+                          (Double + par$Double) * 2 +
+                          (Triple + par$Triple) * 3 +
+                          (HR + par$HR) * 4) /
+           (AB + par_total))
+```
+
+```{r dirichletscatter, dependson = "hit_types_eb", echo = FALSE, fig.cap = "Comparison of the raw slugging percentage and the shrunken slugging percentage (for players at least 3 at-bats). The mean of the prior distribution is shown as a flat dashed line."}
+hit_types_eb %>%
+  filter(AB > 3) %>%
+  ggplot(aes(slugging, slugging_eb, color = AB)) +
+  geom_point() +
+  geom_abline(color = "red") +
+  geom_hline(yintercept = slugging_mean, lty = 2, color = "red") +
+  scale_color_continuous(trans = "log10", breaks = c(1, 10, 100, 1000, 10000)) +
+  xlab("Slugging percentage") +
+  ylab("Slugging percentage w/ empirical Bayes")
+```
+
+Figure \@ref(fig:dirichletscatter) shows how this shrinkage changed our estimates of each player's slugging percentage. Notice that this looks a *lot* like the effect of empirical Bayes on our batting average estimates, back in Figure \@ref(fig:ebestimatescatter). We're seeing everything get shrunk towards our central estimate of `r slugging_mean` (the estimated percentage for a player with no at-bats), except players with a lot of evidence.
+
+We can now look at the batters with the best shrunken slugging averages in history.
+
+```{r dependson = "hit_types_eb", echo = FALSE}
+hit_types_eb %>%
+  arrange(desc(slugging_eb)) %>%
+  head(6) %>%
+  knitr::kable()
+```
+
+This list is no longer topped by players who had only a few at-bats and got a home run or triple. Instead, we see several players from early in the game's history who were legendary for their home run ability, such as Ted Williams and Lou Gehrig. We also see Barry Bonds and Mark McGwire, two recent record holders for most home runs in a season.
+
+Applying the Dirichlet-multinomial distribution allowed us to adjust slugging percentages the same way we have batting averages. It's also shown that the beta-binomial model we've used throughout the book is just one example of how useful the Bayesian approach is: many useful distributions (such as the normal or the Poisson) also have other distributions that serve as conjugate priors. Check out [this list of conjugate priors](https://en.wikipedia.org/wiki/Conjugate_prior) for more.[^orderedcategory]
+
+[^orderedcategory]: You may have noticed a complication with our model: we didn't consider that five categories of hits aren't independent for each player, but rather have a natural order. It would be implausible for a player who either misses or gets home runs, with nothing in between. Other Bayesian models can handle this, as explored in [@agresti2005bayesian], but it is beyond the scope of this book.

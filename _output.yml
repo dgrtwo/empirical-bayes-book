@@ -1,16 +1,7 @@
-bookdown::gitbook:
-  css: style.css
-  config:
-    toc:
-      before: |
-        <li><a href="./">A Minimal Book Example</a></li>
-      after: |
-        <li><a href="https://github.com/rstudio/bookdown" target="blank">Published with bookdown</a></li>
-    edit:
-      link: https://github.com/rstudio/bookdown-demo/edit/master/%s
-bookdown::pdf_book:
+bookdown::tufte_book2:
   includes:
     in_header: preamble.tex
+    before_body: dedication.tex
+    after_body: after.tex
   latex_engine: xelatex
   citation_package: natbib
-bookdown::epub_book: default

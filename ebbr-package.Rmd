@@ -1,0 +1,349 @@
+# (PART) Computation {-}
+
+# The ebbr package {#ebbr}
+
+```{r, echo = FALSE}
+library(knitr)
+opts_chunk$set(cache = TRUE, warning = FALSE, message = FALSE, tidy = FALSE, fig.height = 5, fig.width = 6.67, out.height = "3in", out.width = "4in")
+options(digits = 3)
+
+library(ggplot2)
+theme_set(theme_bw())
+library(scales)
+```
+
+We've introduced a number of statistical techniques in this book: estimating a beta prior, beta-binomial regression, hypothesis testing, mixture models, and many other components of the empirical Bayes approach. These methods are useful whenever you have many observations of success/total data. In the final chapters, we're going to shift from introducing statistical methods to discuss using them in practice in R.
+
+Each chapter has come with some code that implements the statistical methods described, which you're welcome to adapt for your own data.[^startshowingcode] However, you'd probably find yourself copying and pasting quite large amount of code, which can take you out of the flow of your own data analysis and introduces opportunities for mistakes.
+
+[^startshowingcode]: Previous chapters showed the code only for selected steps, such as when estimates were actually being computed, and almost never the code to generate figures. Since the remaining chapters are meant as a guide to using empirical Bayes, we'll include much more code, including code to visualize model results using ggplot2.
+
+In this chapter, we'll introduce the [ebbr package](https://github.com/dgrtwo/ebbr) for performing empirical Bayes on binomial data in R. The package offers convenient tools for performing almost all the analyses we've done during this series, along with documentation and examples. This also serves as a review of the entire book: we'll touch on each chapter briefly and recreate some of the key results. 
+
+```{r setup, echo = FALSE}
+library(knitr)
+opts_chunk$set(message = FALSE, warning = FALSE)
+
+library(scales)
+library(ggplot2)
+theme_set(theme_bw())
+```
+
+## Setup
+
+As usual, we start with code that sets up the variables analyzed in this chapter.
+
+```{r career}
+library(Lahman)
+library(dplyr)
+library(tidyr)
+
+# Grab career batting average of non-pitchers
+# (allow players that have pitched <= 3 games, like Ty Cobb)
+pitchers <- Pitching %>%
+  group_by(playerID) %>%
+  summarize(gamesPitched = sum(G)) %>%
+  filter(gamesPitched > 3)
+
+# Add player names
+player_names <- Master %>%
+  tbl_df() %>%
+  dplyr::select(playerID, nameFirst, nameLast, bats) %>%
+  unite(name, nameFirst, nameLast, sep = " ")
+
+# include the "bats" (handedness) and "year" column for later
+career_full <- Batting %>%
+  filter(AB > 0) %>%
+  anti_join(pitchers, by = "playerID") %>%
+  group_by(playerID) %>%
+  summarize(H = sum(H), AB = sum(AB), year = mean(yearID)) %>%
+  inner_join(player_names, by = "playerID") %>%
+  filter(!is.na(bats))
+
+# We don't need all this data for every step
+career <- career_full %>%
+  select(-bats, -year)
+```
+
+## Empirical Bayes estimation
+
+```{r averagehistogramebbr, dependson = "career", echo = FALSE, fig.cap = "Distribution of player batting averages."}
+career %>%
+  filter(AB >= 100) %>%
+  ggplot(aes(H / AB)) +
+  geom_histogram() +
+  xlab("Batting average (H / AB)")
+```
+
+In Chapter \@ref(empirical-bayes), we noticed that the distribution of player batting averages looked roughly like a beta distribution (Figure \@ref(fig:averagehistogramebbr)). We thus wanted to estimate the beta prior for the overall dataset, which is the first step of empirical Bayes analysis.
+
+The `ebb_fit_prior()` function encapsulates this, taking the data along with the success/total columns and fitting the beta through maximum likelihood.
+
+```{r prior, dependson = "career"}
+library(ebbr)
+
+# filter for only players with more than 500 at-bats
+prior <- career %>%
+  filter(AB >= 500) %>%
+  ebb_fit_prior(H, AB)
+
+prior
+```
+
+`prior` is an `ebb_prior` object, which is a statistical model object containing the details of the beta distribution. Here we can see the overall alpha and beta parameters. (We'll see later that it can store more complicated models).
+
+The second step of empirical Bayes analysis is updating each observation based on the overall statistical model. Based on the philosophy of the broom package, this is achieved with the `augment()` function.
+
+```{r eb_career_other, dependson = "prior"}
+augment(prior, data = career)
+```
+
+Notice we've now added several columns to the original data, each beginning with `.` (which is a convention of the `augment` verb to avoid rewriting existing columns). We have the `.alpha1` and `.beta1` columns as the parameters for each player's posterior distribution, as well as `.fitted` representing the new posterior mean (the "shrunken average").
+
+We often want to run these two steps in sequence: estimating a model, then using it as a prior for each observation. The `ebbr` package provides a shortcut, combining them into one step with `add_ebb_estimate()`.[^addprefix]
+
+[^addprefix]: The `add_` prefix is inspired by `add_residuals` and `add_predictions` in the [modelr](https://github.com/hadley/modelr) package, which also fit a statistical model and append columns based on it.
+
+```{r eb_career, dependson = "career"}
+eb_career <- career %>%
+  add_ebb_estimate(H, AB, prior_subset = AB >= 500)
+
+eb_career
+```
+
+Note the `prior_subset` argument, which noted that while we wanted to keep all the shrunken values in our output, we wanted to fit the prior only on individuals with at least 500 at-bats.
+
+### Estimates and credible intervals
+
+Having the posterior estimates for each player lets us explore the model results using our normal tidy tools like dplyr and ggplot2. For example, we could visualize how batting averages were shrunken towards the mean of the prior (Figure \@ref(fig:shrinkageaverages)).
+
+```{r shrinkageaverages, dependson = "eb_career", fig.cap = "Comparison of the raw batting average and the empirical Bayes shrunken batting average."}
+eb_career %>%
+  ggplot(aes(.raw, .fitted, color = AB)) +
+  geom_point() +
+  geom_abline(color = "red") +
+  scale_color_continuous(trans = "log", breaks = c(1, 10, 100, 1000)) +
+  geom_hline(yintercept = tidy(prior)$mean, color = "red", lty = 2) +
+  labs(x = "Raw batting average",
+       y = "Shrunken batting average")
+```
+
+This was one of the most important visualizations in Chapter \@ref(empirical-bayes). I like how it captures what empirical Bayes estimation is doing: moving all batting averages towards the prior mean (the dashed red line), but moving them less if there is a lot of information about that player (high AB).
+
+In Chapter \@ref(credible-intervals) we used credible intervals to visualize our uncertainty about each player's true batting average. The output of `add_ebb_estimate()` comes with those credible intervals in the form of `.low` and `.high` columns. This makes it easy to visualize these intervals for particular players, such as the 1998 Yankees (Figure \@ref(fig:ebcareeryankee)).
+
+```{r ebcareeryankee, dependson = "eb_career", fig.cap = "Credible intervals for seven selected players from the 1998 Yankee team."}
+yankee_1998 <- c("brosisc01", "jeterde01", "knoblch01",
+                 "martiti02", "posadjo01", "strawda01", "willibe02")
+
+eb_career %>%
+  filter(playerID %in% yankee_1998) %>%
+  mutate(name = reorder(name, .fitted)) %>%
+  ggplot(aes(.fitted, name)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = .low, xmax = .high)) +
+  labs(x = "Estimated batting average (w/ 95% confidence interval)",
+       y = "Player")
+```
+
+Notice that once we have the output from `add_ebb_estimate()`, we're no longer relying on the `ebbr` package, only on dplyr and ggplot2. 
+
+## Hierarchical modeling
+
+In Chapters \@ref(regression) and \@ref(hierarchical-modeling), we examined how this beta-binomial model may not be appropriate, because of the relationship between a player's at-bats and their batting average. Good batters tend to have long careers, while poor batters may retire quickly.
+
+```{r eval = FALSE}
+career %>%
+  filter(AB >= 10) %>%
+  ggplot(aes(AB, H / AB)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  scale_x_log10()
+```
+
+We solved this by fitting a prior that depended on AB, through the process of **beta-binomial regression**. The `add_ebb_estimate()` function from ebbr offers this option, by setting `method = "gamlss"` and providing a formula to `mu_predictors`.[^sigmapredictors]
+
+[^sigmapredictors]: You can also provide `sigma_predictors` to have the variance of the beta depend on regressors, though it's less common that you'd want to do so.
+
+```{r eb_career_ab, dependson = "career"}
+eb_career_ab <- career %>%
+  add_ebb_estimate(H, AB, method = "gamlss",
+                    mu_predictors = ~ log10(AB))
+
+eb_career_ab
+```
+
+The augmented output is now a bit more complicated (and hard to fit into a printed output). Besides the posterior parameters such as `.alpha1`, `.beta1`, and `.fitted`, each observation also has its own prior parameters `.alpha0` and `.beta0`. These are predicted based on the regression on `AB`.
+
+The other parameters, such as `.fitted` and the credible interval, are now shrinking towards a *trend* rather than towards a constant. We can see this by plotting `AB` against the raw batting averages and the shrunken estimates (Figure \@ref(fig:ebcareerab)).
+
+```{r ebcareerab, dependson = "eb_career_ab", fig.cap = "The relationship between AB and the raw estimate, as well as with and the shrunken empirical Bayes estimate using a beta-binomial regression model."}
+eb_career_ab %>%
+  filter(AB > 10) %>%
+  rename(Raw = .raw, Shrunken = .fitted) %>%
+  gather(type, estimate, Raw, Shrunken) %>%
+  ggplot(aes(AB, estimate)) +
+  geom_point() +
+  facet_wrap(~ type) +
+  scale_x_log10()
+```
+
+As we saw in the Chapter \@ref(hierarchical-modeling), the model's `mu_predictors` argument can incorporate still more useful information. For example, it could include what year each player batted in, and whether they are left- or right- handed, both of which tend to affect batting average.
+
+```{r eb_career_hierarchical, dependson = "career"}
+library(splines)
+
+eb_career_prior <- career_full %>%
+  ebb_fit_prior(H, AB, method = "gamlss",
+                mu_predictors = ~ 0 + ns(year, df = 5) * bats + log(AB))
+```
+
+In this case we're fitting the prior with `ebb_fit_prior()` rather than adding the estimates with `add_ebb_estimate()`. This lets us feed it new data that we generate ourselves, and examine how the posterior distribution would change. This takes a bit more work, but lets us re-generate one of the more interesting plots from that post about how time and handedness relate (Figure \@ref(fig:priorovertime)).
+
+```{r priorovertime, dependson = "eb_career_hierarchical", fig.cap = "The prior distribution that would be used for a left- or right-handed player at a particular point in time. Shown are the mean and the 95\\% intervals for each prior."}
+# fake data ranging from 1885 to 2013
+fake_data <- crossing(H = 300,
+                      AB = 1000,
+                      year = seq(1885, 2013),
+                      bats = c("L", "R"))
+
+# find the mean of the prior, as well as the 95% quantiles,
+# for each of these combinations. This does require a bit of
+# manual manipulation of alpha0 and beta0:
+augment(eb_career_prior, newdata = fake_data) %>%
+  mutate(prior = .alpha0 / (.alpha0 + .beta0),
+         prior.low = qbeta(.025, .alpha0, .beta0),
+         prior.high = qbeta(.975, .alpha0, .beta0)) %>%
+  ggplot(aes(year, prior, color = bats)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = prior.low, ymax = prior.high), alpha = .1, lty = 2) +
+  ylab("Prior distribution (mean + 95% quantiles)")
+```
+
+Since the `ebbr` package makes these models convenient to fit, you can try a few variations on the model and compare them.
+
+## Hypothesis testing
+
+Chapter \@ref(hypothesis-testing) examined the problem of hypothesis testing. For example, we wanted to get a posterior probability for the statement "this player's true batting average is greater than .300", so that we could construct a "Hall of Fame" of such players.
+
+This method is implemented in the `add_ebb_prop_test` (notice that like `add_ebb_estimate`, it adds columns to existing data). `add_ebb_prop_test` takes the output of an earlier `add_ebb_estimate` operation, which contains posterior parameters for each observation, and appends columns to it:
+
+```{r test_300, dependson = "eb_career_ab"}
+test_300 <- career %>%
+  add_ebb_estimate(H, AB, method = "gamlss", mu_predictors = ~ log10(AB)) %>%
+  add_ebb_prop_test(.300, sort = TRUE)
+
+test_300
+```
+
+(Note the `sort = TRUE` argument, which sorts in order of our confidence in each player). There are now too many columns to read easily, so we'll select only a few of the most interesting ones:
+
+```{r dependson = "test_300"}
+test_300 %>%
+  select(name, H, AB, .fitted, .low, .high, .pep, .qvalue)
+```
+
+Notice that two columns have been added, with per-player metrics [described in this post](http://varianceexplained.org/r/bayesian_fdr_baseball/).
+
+* `.pep`: the posterior error probability- the probability that this player's true batting average is less than .3.
+* `.qvalue`: the q-value, which corrects for multiple testing by controlling for false discovery rate (FDR). Allowing players with a q-value below .05 would mean only 5% of the ones included would be false discoveries.
+
+For example, we could find how many players would be added to our "Hall of Fame" with an FDR of 5%, or 1%:
+
+```{r}
+sum(test_300$.qvalue < .05)
+sum(test_300$.qvalue < .01)
+```
+
+### Player-player A/B test
+
+Chapter \@ref(ab-testing) discussed the case where instead of comparing each observation to a single threshold (like .300) we want to compare to another player's posterior distribution. We noted that this is similar to the problem of "A/B testing", where we might be comparing two clickthrough rates, each represented by successes / total.
+
+The post compared each player in history to Mike Piazza, and found players we were confident were better batters. We'd first find Piazza's posterior parameters:
+
+```{r piazza}
+piazza <- eb_career_ab %>%
+  filter(name == "Mike Piazza")
+
+piazza_params <- c(piazza$.alpha1, piazza$.beta1)
+piazza_params
+```
+
+This vector of two parameters, an alpha and a beta, can be passed into `add_ebb_prop_test` just like we passed in a threshold.[^prop]
+
+[^prop]: This is rather similar to how the built-in [prop.test](https://stat.ethz.ch/R-manual/R-devel/library/stats/html/prop.test.html) function handles the difference between one-sample and two-sample tests. I've often found this kind of behavior annoying (determining what test to use based on the length of the input), but I must admit it is convenient.
+
+```{r compare_piazza, dependson = "eb_career_ab"}
+compare_piazza <- eb_career_ab %>%
+  add_ebb_prop_test(piazza_params, approx = TRUE, sort = TRUE)
+```
+
+Again we select only a few interesting columns to display.
+
+```{r dependson = "compare_piazza"}
+compare_piazza %>%
+  select(name, H, AB, .fitted, .low, .high, .pep, .qvalue)
+```
+
+Just like the one-sample test, the function has added `.pep` and `.qvalue` columns. From this we can see a few players who we're extremely confident are better than Piazza.
+
+## Mixture models
+
+This brings us to mixture models. In Chapter \@ref(mixture-models) we noticed that when pitchers are included, the data looks a lot less like a beta distribution and more like a combination of two betas. Fitting a mixture model, to separate out the two beta distributions so they could be shrunken separately, took a solid amount of code in that chapter.
+
+
+```{r career_w_pitchers}
+career_w_pitchers <- Batting %>%
+  filter(AB >= 25, lgID == "NL", yearID >= 1980) %>%
+  group_by(playerID) %>%
+  summarize(H = sum(H), AB = sum(AB), year = mean(yearID)) %>%
+  mutate(isPitcher = playerID %in% pitchers$playerID) %>%
+  inner_join(player_names, by = "playerID")
+```
+
+The ebbr package thus provides the `ebb_fit_mixture()` function for fitting a mixture model using an iterative expectation-maximization algorithm. Like the other estimation functions, it takes a table as the first argument, followed by two arguments for the "successes" column and the "total" column:
+
+```{r mm, dependson = "career_w_pitchers"}
+set.seed(1337)
+mm <- ebb_fit_mixture(career_w_pitchers, H, AB, clusters = 2)
+```
+
+It returns the parameters of two (or more) beta distributions, which can be extracted with the `tidy()` function.
+
+```{r dependson = "mm"}
+tidy(mm)
+```
+
+It also assigns each observation to the most likely cluster. Here, we can see that cluster 1 is made up of pitchers, while cluster 2 is the non-pitchers (Figure \@ref(fig:mmassignmenthistogram)).
+
+```{r mmassignmenthistogram, dependson = "mm", fig.cap = "Histogram of mixture model assignments to the two clusters."}
+ggplot(mm$assignments, aes(H / AB, fill = .cluster)) +
+  geom_histogram(alpha = 0.8, position = "identity")
+```
+
+### Mixture model across iterations
+
+You may be interested in how the mixture model converged to its parameters. The `iterations` component of the `ebb_mixture` object contains details on the fits and assignments at each iteration. For example, we could examine the distribution of players assigned to each cluster at each iteration (Figure \@ref(fig:mmassignmentiterations)).
+
+```{r mmassignmentiterations, dependson = "mm", fig.cap = "Histogram of the batting averages of players assigned to clusters A and B, "}
+assignments <- mm$iterations$assignments
+
+assignments %>%
+  ggplot(aes(H / AB, fill = .cluster)) +
+  geom_histogram(alpha = 0.8, position = "identity") +
+  facet_wrap(~ iteration)
+```
+
+The `iterations` component also contains details on the parameters fit at each of the maximization steps, which can then be visualized to see how those parameters converged (Figure \@ref(fig:mmfititerations)).
+
+```{r mmfititerations, dependson = "mm", fig.cap = "The estimated $\\alpha$ and $\\beta$ parameters for each cluster at each iteration of the expectation-maximization algorithm."}
+fits <- mm$iterations$fits
+
+fits %>%
+  gather(parameter, value, alpha, beta, mean) %>%
+  ggplot(aes(iteration, value, color = parameter, lty = cluster)) +
+  geom_line() +
+  facet_wrap(~ parameter, scales = "free_y")
+```
+
+The ebbr package's functions for mixture modeling are currently a bit more primitive than the rest, and some of the details are likely to change (this is one of the reasons ebbr hasn't yet been submitted to CRAN). Still, the package makes it easier to experiment with expectation-maximization algorithms.

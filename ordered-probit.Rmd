@@ -1,0 +1,108 @@
+---
+title: "Untitled"
+author: "David Robinson"
+date: "January 28, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+### Ordered probit
+
+```{r}
+m <- cbind(hit_matrix[, 5], hit_matrix[, 1:4])
+totals <- rowSums(m)
+
+negative_ll <- function(mu, x, cutpoints) {
+  probs <- diff(c(0, pnorm(cutpoints, mu), 1))
+  - dmultinom(x, prob = probs, log = TRUE)
+}
+
+starting_cutpoints <- c(0, 1, 2, 3)
+
+estimate_mu <- function(cutpoints) {
+  apply(m, 1, function(r) {
+    optimize(negative_ll, interval = c(-1, 1), x = r, cutpoints = cutpoints)$minimum
+  })
+}
+
+estimate_cutpoints <- function(mu) {
+  gaps_ll <- function(gaps) {
+    cutpoints <- cumsum(gaps)
+    pnorms <- outer(cutpoints, head(mu, 50), pnorm)
+    
+    player_probs <- rbind(pnorms, 1) - rbind(0, pnorms)
+    player_exp <- t(player_probs) * head(totals, 50)
+
+    - sum(dpois(head(m, 50), player_exp, log = TRUE))
+  }
+  
+  optim <- optim(starting_cutpoints, gaps_ll)
+  cumsum(optim$par)
+}
+
+mu_estimate <- estimate_mu(starting_cutpoints)
+cp <- estimate_cutpoints(mu_estimate)
+
+mu2 <- estimate_mu(cp)
+cp2 <- estimate_cutpoints(mu2)
+
+mu3 <- estimate_mu(cp2)
+# fit <- vglm(  dose, family=cumulative(parallel=TRUE), data=trauma)
+```
+
+```{r}
+hit_500  %>%
+  mutate(mu = mu3) %>%
+  arrange(mu) %>%
+  ggplot(aes(mu, slugging, color = AB)) +
+  geom_point() +
+  scale_color_continuous(trans = "log")
+```
+
+```{r}
+hit_500  %>%
+  mutate(mu = mu3) %>%
+  ggplot(aes(mu)) +
+  geom_histogram()
+```
+
+```{r}
+hit_types_gathered %>%
+  mutate(type = forcats::fct_relevel(type, c("NonHit", "Single", "Double", "Triple"))) %>%
+  arrange(playerID, type)
+```
+
+```{r}
+hit_500  %>%
+  mutate(mu = mu3)
+```
+
+```{r}
+mu0 <- mean(mu3)
+sd0 <- sd(mu3)
+
+mus <- seq(-1, 0, .001)
+probs_mus <- t(sapply(mus, function(.) diff(c(0, pnorm(cp2, .), 1))))
+priors_mus <- dnorm(mus, mu0, sd0)
+
+x <- m[50, ]
+
+x <- c(50, 0, 0, 0, 20)
+posterior <- priors_mus * apply(probs_mus, 1, function(p) dmultinom(x, prob = p))
+posterior <- posterior / sum(posterior)
+
+mu1 <- sum(posterior * mus) / sum(posterior)
+sd1 <- sqrt(sum(posterior * (mus - mu1) ^ 2) / sum(posterior))
+
+qplot(mus, posterior * 1000) +
+  stat_function(fun = dnorm, args = list(mu1, sd1), color = "red")
+```
+
+```{r}
+
+dmultinom(m[1, ], prob = diff(c(0, pnorm(cp2, -.4), 1)))
+```

@@ -1,0 +1,388 @@
+# Simulation {#simulation}
+
+```{r, echo = FALSE}
+library(knitr)
+opts_chunk$set(cache = TRUE, warning = FALSE, message = FALSE, tidy = FALSE, fig.height = 5, fig.width = 6.67, out.height = "3in", out.width = "4in")
+options(digits = 5)
+```
+
+```{r cache = FALSE, echo = FALSE}
+library(ggplot2)
+theme_set(theme_bw())
+library(scales)
+```
+
+Over the course of this book we've touched on many statistical approaches for analyzing binomial data, all with the goal of estimating the batting average of each player based on their batting record. There's one question we haven't answered, though: **do these methods actually work?**
+
+Even if we assume each player has a "true" batting average (as our model suggests), we don't *know* it, so we can't see if our methods estimated it accurately. For example, we think that empirical Bayes shrinkage gets closer to the true probabilities than raw batting averages do, but we can't actually measure the mean-squared error. This means we can't test our methods, or examine when they work well and when they don't.
+
+In this last chapter we'll **simulate** some fake batting average data, which will let us know the true probabilities for each player, then examine how close our statistical methods get to the true solution. Simulation is a universally useful way to test a statistical method, to build intuition about its mathematical properies, and to gain confidence that we can trust its results. In particular, we'll demonstrate the tidyverse approach to simulation, which takes advantage of packages such as dplyr, tidyr, purrr and broom to examine many combinations of input parameters.
+
+```{r setup, echo = FALSE}
+library(knitr)
+opts_chunk$set(message = FALSE, warning = FALSE)
+
+library(scales)
+library(ggplot2)
+theme_set(theme_bw())
+```
+
+## Setup
+
+Most of the chapters started by assembling some per-player batting data. We're going to be simulating (i.e. making up) our data for this analysis, so you might think we don't need to look at real data at all. However, data is still necessary to estimating the parameters we'll use in the simulation, which keeps the experiment realistic and ensures that our conclusions will be useful.
+
+```{r career}
+library(Lahman)
+library(dplyr)
+library(tidyr)
+library(purrr)
+
+# Grab career batting average of non-pitchers
+# (allow players that have pitched <= 3 games, like Ty Cobb)
+pitchers <- Pitching %>%
+  group_by(playerID) %>%
+  summarize(gamesPitched = sum(G)) %>%
+  filter(gamesPitched > 3)
+
+# include the "bats" (handedness) and "year" column for later
+career <- Batting %>%
+  filter(AB > 0) %>%
+  anti_join(pitchers, by = "playerID") %>%
+  group_by(playerID) %>%
+  summarize(H = sum(H), AB = sum(AB))
+```
+
+### Distribution of p and AB
+
+The first step to developing a simulation study is specifying a generative model: describing what distributions each value follows. In the beta-binomial model we've been using for most of these posts, there are two values for each player $i$:
+
+$$p_i \sim \mbox{Beta}(\alpha_0, \beta_0)$$
+
+$$H_i \sim \mbox{Binom}(\mbox{AB}_i, p_i)$$
+
+$\alpha_0;\beta_0$ are "hyperparameters": two unobserved values that describe the entire distribution. $p_i$ is the true batting average for each player- we don't observe this, but it's the "right answer" for each batter that we're trying to estimate. $\mbox{AB}_i$ is the number of at-bats the player had, which *is* observed.[^betabinomialmodel] 
+
+[^betabinomialmodel]: You might recall we introduced a more complicated model in Chapter \@ref(regression) that had $p_i$ depend on $AB_i$, which we'll revisit later in this chapter.
+
+Our simulation approach is going to be to pick some "true" $\alpha_0;\beta_0$, then simulate $p_i$ for each player. Since we're just picking any $\alpha_0;\beta_0$ to start with, we may as well estimate them from our data, since we know those are plausible values (though if we wanted to be more thorough, we could try a few other values and see how our accuracy changes).
+
+To do this estimation, we can use `ebb_fit_prior` from the ebbr package introduced in Chapter \@ref(ebbr) to fit the empirical Bayes prior.
+
+```{r prior}
+library(ebbr)
+prior <- career %>%
+  ebb_fit_prior(H, AB)
+
+prior
+```
+
+These two hyperparameters are all we need to simulate 10,000 values of $p_i$, using the `rbeta` function.
+
+```{r alpha0, dependson = "prior"}
+alpha0 <- tidy(prior)$alpha
+beta0 <- tidy(prior)$beta
+
+# for example, generating 10 values
+rbeta(10, alpha0, beta0)
+```
+
+```{r abhistogram, dependson = "career", fig.cap = "Distribution of AB, the number of at-bats, across all players (note the log x axis).", echo = FALSE}
+ggplot(career, aes(AB)) +
+  geom_histogram() +
+  scale_x_log10()
+```
+
+There's another component to this model: $\mbox{AB}_i$, the distribution of the number of at-bats. This is a much more unusual distribution (Figure \@ref(fig:abhistogram); code not shown). The good news is, we don't *need* to simulate these $\mbox{AB}_{i}$ values, since we're not trying to estimate them with empirical Bayes. We can just use the observed values we have! (In a different study, we may be interested in how the success of empirical Bayes depends on the distribution of the $n$s).
+
+Thus, to recap, we will:
+
+* **Estimate** $\alpha_0;\beta_0$, which works because the parameters are not observed, but there are only a few and we can predict them with confidence.
+* **Simulate** $p_i$, based on a beta distribution, so that we can test our ability to estimate them.
+* **Use observed** $\mbox{AB}_i$, since we know the true values and there's no harm in re-using them.
+
+## Empirical Bayes estimation
+
+The beta-binomial model is easy to simulate, with applications of the `rbeta` and `rbinom` functions.
+
+```{r career_sim}
+# always set a seed when simulating
+set.seed(2017)
+
+career_sim <- career %>%
+  mutate(p = rbeta(n(), alpha0, beta0),
+         H = rbinom(n(), AB, p))
+
+career_sim
+```
+
+Just like that, we've generated a "true" $p_i$ for each player from the beta distribution, and then a new value of $H$ from the binomial distribution according to that probability.[^norelationship]
+
+[^norelationship]: Note that this means there is no relationship between how good a particular player is in our simulation and how good they are in reality.
+
+Throughout this book, we've assumed that the raw $H / \mbox{AB}$ estimates have had a large amount of noise when $\mbox{AB}$ is small, and that empirical Bayes helps reduce that noise. Now, since we know the true value of $p_i$ for each player, we can finally examine whether that's true: and we can see what the empirical Bayes method is giving up as well.
+
+Let's visualize the true values of $p_i$ versus the estimates, which we'll call $\hat{p_i}$, using either raw estimation or empirical Bayes shrinkage (Figure \@ref(fig:careersimgatheredscatter)).
+
+```{r career_sim_gathered, dependson = "career_sim"}
+career_sim_eb <- career_sim %>%
+  add_ebb_estimate(H, AB)
+
+career_sim_gathered <- career_sim_eb %>%
+  rename(Shrunken = .fitted, Raw = .raw) %>%
+  gather(type, estimate, Shrunken, Raw)
+```
+
+```{r careersimgatheredscatter, dependson = "career_sim_gathered", fig.cap = "The relationship between the true batting average $p$ and either the raw batting average $H / AB$, or the shrunken estimate $\\hat{p_i}$."}
+career_sim_gathered %>%
+  filter(AB >= 10) %>%
+  ggplot(aes(p, estimate, color = AB)) +
+  geom_point() +
+  geom_abline(color = "red") +
+  geom_smooth(method = "lm", color = "white", lty = 2, se = FALSE) +
+  scale_color_continuous(trans = "log",
+                         breaks = c(10, 100, 1000, 10000)) +
+  facet_wrap(~ type) +
+  labs(x = "True batting average (p)",
+       y = "Raw or shrunken batting average")
+```
+
+This figure shows that the method works: the raw (H / AB) estimates have a *lot* more noise than the shrunken estimates (appearing farther from the red line), just as we expected.[^filter10]
+
+[^filter10]: We filtered out cases where $AB < 10$ in this graph: if we hadn't, the difference would have been even starker
+
+However, notice the white dashed line representing the best-fit slope. One property that we'd prefer an estimate to have is that it's equally likely to be an overestimate or an underestimate (that is, that $E[\hat{p}]=p$), and that's true for the raw batting average: the white dashed line lines up with the red $x=y$ line. However, the shrunken estimate tends to be too high for low values of $p$, and too low for high values of $p$. The empirical Bayes method has introduced **bias** into our estimate, in exchange for drastically reducing the **variance**. This is a [classic tradeoff in statistics and machine learning](https://en.wikipedia.org/wiki/Bias%E2%80%93variance_tradeoff).
+
+### Mean-squared error and bias relative to AB {#simulation-mse}
+
+Typically, when statisticians are facing a tradeoff between bias and variance, we use **mean squared error** (MSE) as a balance, which is computed as $\mbox{MSE}=\frac{1}{n}\sum_{1}^{n}(p-\hat{p})^2$ (thus, the average squared distance from the truth). We can easily compute that for both the raw and shrunken methods.
+
+```{r mse, dependson = "career_sim_gathered"}
+career_sim_gathered %>%
+  group_by(type) %>%
+  summarize(mse = mean((estimate - p) ^ 2))
+```
+
+The MSE of the shrunken estimate was *much* lower than the raw estimate, as we probably could have guessed by eyeballing the graph. So by this standard, the method succeeded!
+
+We've seen in Figure \@ref(fig:careersimgatheredscatter) how the variance depends on $\mbox{AB}$, so we may want to compute the MSE within particular bins (Figure \@ref(fig:metricbybin)).
+
+```{r metricbybin, dependson = "career_sim_gathered", fig.cap = "Mean-squared error within bins of AB, using either the raw average or the shrunken estimate. Note that both axes are on a log scale."}
+metric_by_bin <- career_sim_gathered %>%
+  group_by(type, AB = 10 ^ (round(log10(AB)))) %>%
+  summarize(mse = mean((estimate - p) ^ 2))
+
+ggplot(metric_by_bin, aes(AB, mse, color = type)) +
+  geom_line() +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(x = "Number of at-bats (AB)",
+       y = "Mean-squared-error within this bin")
+```
+
+We note that the mean squared error is higher with the raw estimate, especially for low AB, and that the two methods become more and more similar in terms of MSE for higher AB. This makes sense, since when we have a large amount of evidence, both methods tend to be very accurate and empirical Bayes has only a small effect.
+
+We could also examine the bias within each bin, measured as the slope between the estimate and the true value of $p$ (Figure \@ref(fig:biasbybin); code not shown). This shows that shrunken estimates introduce bias, especially when AB is low, while the raw estimates are generally unbiased.
+
+```{r biasbybin, dependson = "metric_by_bin", echo = FALSE, fig.cap = "Bias within bins of AB, using either the raw average or the shrunken estimate. Note that an unbiased estimate would have a slope of 0 (shown as horizontal dashed line)."}
+career_sim_gathered %>%
+  mutate(AB = 10 ^ (round(log10(AB)))) %>%
+  filter(AB > 1) %>%
+  nest(-type, -AB) %>%
+  unnest(map(data, ~ tidy(lm(estimate ~ p, .)))) %>%
+  filter(term == "p") %>%
+  ggplot(aes(AB, estimate, color = type)) +
+  geom_line() +
+  scale_x_log10(breaks = c(10, 100, 1000, 10000)) +
+  geom_hline(yintercept = 1, lty = 2) +
+  labs(x = "Number of at-bats (AB)",
+       y = "Slope of estimate/p within this bin")
+```
+
+Another way to visualize how this tradeoff between bias and variance happens for varying AB is to recreate Figure \@ref(fig:careersimgatheredscatter) of the true batting average versus the estimate, this time binning by $AB$ (Figure \@ref(fig:careersimgatheredbin); code not shown).
+
+```{r careersimgatheredbin, echo = FALSE, out.height = "4in", out.width = "4in", fig.height = 6, fig.width = 6, fig.cap = "The relationship between the true batting average $p$ and either the raw batting average $H / AB$, or the shrunken estimate $\\hat{p_i}$, within particular bins of AB. The red line is x = y; the dashed white line is a linear fit."}
+career_sim_gathered %>%
+  mutate(ab_bin = cut(AB, c(0, 10, 100, 1000, Inf),
+                      labels = c("1-10", "11-100", "101-1000", "1000+"))) %>%
+  ggplot(aes(p, estimate, color = AB)) +
+  geom_point() +
+  geom_abline(color = "red") +
+  geom_smooth(method = "lm", color = "white", lty = 2, se = FALSE) +
+  scale_color_continuous(trans = "log", breaks = c(10, 100, 1000, 10000)) +
+  facet_grid(ab_bin ~ type, scales = "free_y") +
+  labs(x = "True batting average (p)",
+       y = "Raw or shrunken estimate")
+```
+
+Notice how the variance around the true (red) line shrinks in the raw estimate, and the bias (the flatness of the gray dashed line) in the shrunken estimate decreases, until both look quite similar in the 1000+ bin.
+
+## Credible intervals {#credible-intervals}
+
+Besides the shrunken empirical Bayes estimates, the `add_ebb_estimate` function also adds credible intervals (Chapter \@ref(credible-intervals)) for each of our players. With our simulated data, we now know the true batting averages, and can see whether the intervals are accurate in representing the uncertainty. For example, we could visualize the credible intervals for 20 random players, and consider how often the interval captured the true batting average (Figure \@ref(fig:random20credintervals)).
+
+```{r random20credintervals, dependson = "career_sim_eb", fig.cap = "Credible intervals for 20 randomely selected players, with the true batting average of each player shown in red."}
+set.seed(2017)
+
+career_sim_eb %>%
+  sample_n(20) %>%
+  mutate(playerID = reorder(playerID, .fitted)) %>%
+  ggplot(aes(.fitted, playerID)) +
+  geom_point() +
+  geom_point(aes(x = p), color = "red") +
+  geom_errorbarh(aes(xmin = .low, xmax = .high)) +
+  theme(axis.text.y = element_blank()) +
+  labs(x = "Estimated batting average (w/ 95% credible interval)",
+       y = "Player")
+```
+
+Notice that out of 20 randomly selected players, the credible interval contained the true batting average (shown in red) in 19 cases. This is a 95% coverage rate, which is exactly what we'd hoped for! Indeed, we can examine this across all players and see that 95% of the intervals contained the true probability.
+
+```{r dependson = "career_sim_eb"}
+career_sim_eb %>%
+  summarize(coverage = mean(.low <= p & p <= .high))
+```
+
+We could also have set the threshold of the credible interval to 90%, or 75%. Does the probability that the parameter is contained within the interval change accordingly along with the level? (Figure \@ref(fig:estimatecredlevel)).
+
+```{r estimate_by_cred_level, dependson = "career_sim_eb"}
+library(purrr)
+
+# fit the prior once
+sim_prior <- ebb_fit_prior(career_sim, H, AB)
+
+# find the coverage probability for each level
+estimate_by_cred_level <- data_frame(level = seq(.5, .98, .02)) %>%
+  unnest(map(level, ~ augment(sim_prior, career_sim, cred_level = .)))
+```
+
+```{r estimatecredlevel, dependson = "estimate_by_cred_level", fig.cap = "Comparison of the level of the credibility interval to the percentage of players where the credible interval contains the true value."}
+estimate_by_cred_level %>%
+  group_by(level) %>%
+  mutate(cover = .low <= p & p <= .high) %>%
+  summarize(coverage = mean(cover)) %>%
+  ggplot(aes(level, coverage)) +
+  geom_line() +
+  geom_abline(color = "red", lty = 2) +
+  labs(x = "Level of credible interval",
+       y = "Probability credible interval contains the true value")
+```
+
+Notice that the probability (the points) hugs the red $x=y$ line almost precisely. This shows that in this method, the per-observation credible intervals are generally *well-calibrated*: if you ask for a X% credible interval, you get a region that contains the true parameter about X% of the time.
+
+## FDR control
+
+In Chapter \@ref(hypothesis-testing) we examined the problem of Bayesian hypothesis testing and FDR control. In particular, we considered the problem of constructing a list of players whose true batting average was above .300, and controlling such that only (say) 10% of the players on the list were included incorrectly.
+
+The q-value, which controls FDR, can be calculated with the `add_ebb_prop_test` function:
+
+```{r pt, dependson = "career_sim_eb"}
+pt <- career_sim_eb %>%
+  add_ebb_prop_test(.3, sort = TRUE)
+
+# Control for FDR of 10%
+hall_of_fame <- pt %>%
+  filter(.qvalue <= .1)
+nrow(hall_of_fame)
+```
+
+If the FDR control were successful, we'd expect 10% of the true batting averages (`p`) to be false discoveries, and therefore below .300. Did the method work?
+
+```{r dependson = "pt"}
+mean(hall_of_fame$p < .3)
+```
+
+Yes- almost exactly 10% of the players included in this "hall of fame" were included incorrectly, indicating that the q-value succeeded in controlling FDR. We could instead try this for all q-values, comparing each q-value threshold to the resulting fraction of false discoveries (Figure \@ref(fig:qvaluetruefdr)).
+
+```{r qvaluetruefdr, dependson = "pt", fig.cap = "Comparison of the q-value threshold, meant to control false discovery rate, and the true FDR, defined as the number of players included where $p<3$. The red line is x = y."}
+pt %>%
+  mutate(true_fdr = cummean(p < .3)) %>%
+  ggplot(aes(.qvalue, true_fdr)) +
+  geom_line() +
+  geom_abline(color = "red") +
+  labs(x = "q-value threshold",
+       y = "True FDR at this q-value threshold")
+```
+
+Notice that the FDR was often a little bit higher than we aimed for with the q-value, which could be due to random noise. Later in this chapter, we'll perform many replications of this simulation and confirm whether the FDR method was successful on average.
+
+## Beta-binomial regression
+
+Most simulation analyses start with a simple model, than gradually add complications. In Chapter \@ref(regression), we discovered that there is a relationship between $\mbox{AB}_i$ and the true batting average $p_i$ that we need to incorporate into our model. Let's add that complication to our simulation, and see if the method we used to account for it actually works.
+
+The model described in that post had three hyperparameters: $\mu_0$, $\mu_{\mbox{AB}}$ and $\sigma_0$. Then each of the probabilities $p_i$ was computed according to the following generative process.
+
+$$\mu_i = \mu_0 + \mu_{\mbox{AB}} \cdot \log(\mbox{AB})$$
+
+$$\alpha_{0,i} = \mu_i / \sigma_0$$
+
+$$\beta_{0,i} = (1 - \mu_i) / \sigma_0$$
+
+$$p_i \sim \mbox{Beta}(\alpha_{0,i}, \beta_{0,i})$$
+
+$$H_i \sim \mbox{Binom}(\mbox{AB}_i, p_i)$$
+
+Much as we estimated $\alpha_0$ and $\beta_0$ from the data before using them in the simulation, we would estimate $\mu_0$, $\mu_{\mbox{AB}}$, and $\sigma_0$ from the data:
+
+```{r bb_reg, dependson = "career"}
+bb_reg <- career %>%
+  ebb_fit_prior(H, AB, method = "gamlss", mu_predictors = ~ log10(AB))
+
+tidy(bb_reg)
+```
+
+The simulation of $p$ for each player is pretty straightforward with the `augment()` method of the beta-binomial prior. Since `augment()` adds `.alpha0` and `.beta0` columns with the per-player hyperparameters, we can simply generate `p` from that.
+
+```{r career_sim_ab}
+set.seed(2017)
+
+career_sim_ab <- augment(bb_reg, career) %>%
+  select(playerID, AB,
+         true_alpha0 = .alpha0,
+         true_beta0 = .beta0) %>%
+  mutate(p = rbeta(n(), true_alpha0, true_beta0),
+         H = rbinom(n(), AB, p))
+```
+
+### Performance of beta-binomial regression method
+
+We first might be wondering if we were able to extract the right hyperparameters through beta-binomial regression. To answer this, we'll fit the prior and then compare it to `bb_reg`, which were the parameters we used to generate the data.
+
+```{r career_ab_prior, dependson = "career_sim_ab"}
+career_ab_prior <- career_sim_ab %>%
+  ebb_fit_prior(H, AB, method = "gamlss", mu_predictors = ~ log10(AB))
+```
+
+```{r dependson = "career_ab_prior"}
+tidy(bb_reg)
+tidy(career_ab_prior)
+```
+
+That's quite close! It looks like beta-binomial regression was able to estimate the true parameters accurately,[^stderror] which suggests the resulting per-player prior (which depends on both those parameters $\mbox{AB}_i$) will be accurate.
+
+[^stderror]: It makes sense that the estimation was as accurate as it was, since the standard error (`std.error`) representing the uncertainty is quite low.
+
+How did this prior affect our shrunken estimates? Again, since we're working from a simulation we can compare the true values to the estimates, and do so separately for each model (Figure \@ref(fig:careerflatpriorplot)).
+
+```{r career_flat_prior, dependson = "career_sim_ab"}
+career_flat_prior <- career_sim_ab %>%
+  ebb_fit_prior(H, AB)
+```
+
+```{r careerflatpriorplot, dependson = "career_flat_prior", fig.cap = "Comparison of the true batting average and the shrunken batting average, using either a single beta as the prior or a prior where $p$ depends on AB."}
+data_frame(method = c("Flat prior", "Prior depending on AB"),
+           model = list(career_flat_prior, career_ab_prior)) %>%
+  unnest(map(model, augment, data = career_sim_ab)) %>%
+  ggplot(aes(p, .fitted, color = AB)) +
+  geom_point() +
+  scale_color_continuous(trans = "log", breaks = c(1, 10, 100, 1000)) +
+  geom_abline(color = "red") +
+  facet_wrap(~ method) +
+  labs(x = "True batting average (p)",
+       y = "Shrunken batting average estimate")
+```
+
+Look at the bias when we don't take the AB to batting average relationship into account: batters with low AB and low averages were universally overestimated. This is exactly the issue we predicted in Chapter \@ref(regression):
+
+> Since low-AB batters are getting overestimated, and high-AB batters are staying where they are, we're working with a biased estimate that is systematically *overestimating* batter ability.
+
+If you're interested, you could take this more complex model and perform the same examinations of credible intervals and priors that we did for the simple model. You could also incorporate some of the other trends that could affect your prior, such as year and handedness, that were considered in the hierarchical model in Chapter \@ref(hierarchical-modeling).

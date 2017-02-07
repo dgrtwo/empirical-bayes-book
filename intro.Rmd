@@ -1,0 +1,90 @@
+# Introduction
+
+Have you ever tried to learn math from Wikipedia? As someone who uses a great deal of math in my work but doesn't consider himself a mathematician, I've always found it frustrating. Most math Wikipedia articles read to me like:
+
+> The **eigentensors** are a family of parametric subspaces that are *diagonalizable* but not *orthogonal*. Their densities are a ring of consecutive Hilbert fields...
+
+There are people who can learn math from descriptions like that, but I'm not one of them. When I was learning mathematical statistics, what I found most useful weren't proofs and definitions, but rather intuitive explanations applied to simple examples. I was lucky to have great teachers who showed me the way, and helped guide me towards a thorough appreciation of statistical theory.
+
+This book contains my own contribution to statistical education: an extended intuitive explanation for a statistical concept that I feel is overdue for one. This book introduces **empirical Bayes methods**, which are powerful tools for handling uncertainty across many observations. The methods introduced here include estimation, credible intervals, A/B testing, hierarchical modeling, and other components of the philosophy. It will teach you both the mathematical principles behind these and the code that you can adapt to explore your own data. I wrote it for people (like me) who need to understand and apply mathematical methods, but don't enjoy facing down pages of formulae.
+
+## Why this book?
+
+This originated as an answer to a [Stack Exchange question](http://stats.stackexchange.com/questions/47771/what-is-the-intuition-behind-beta-distribution), which asked for an intuitive explanation of the beta distribution. I followed the answer with a series of posts on my blog [Variance Explained](http://varianceexplained.org), starting with the post [Understanding empirical Bayes estimation (using baseball statistics)](http://varianceexplained.org/r/empirical_bayes_baseball/).
+
+As the blog series progressed, I realized I was building a narrative rather than a series of individual posts. Adapting it into a book allowed me to bring all the material into a consistent style and a cohesive order.[^marginnotes] Among the changes I've made from the blog version is to add a brand new chapter (Chapter \@ref(dirichlet-multinomial)) about the Dirichlet and the multinomial, and to expand and improve material in several other chapters, including a new explanation of the conjugate prior in Section \@ref(conjugate-prior).
+
+[^marginnotes]: For example, by choosing the Tufte book style I've been able to move some of the more extraneous material into margin notes like this one.
+
+### Why empirical Bayes?
+
+We'll discuss exactly what is meant by empirical Bayes in Chapter \@ref(empirical-bayes), but here I'll share a word about the motivation. Empirical Bayesian methods are an approximation to more exact methods, and they come with some controversy in the statistical community.[^name] So why are they worth learning? Because in my experience, *empirical Bayes is especially well suited to the modern field of data science*.
+
+[^name]: The name "empirical Bayes" is perhaps the most controversial element, since some have noted that it falsely implies other methods are "not empirical". I use this name throughout the book only for lack of an alternative.
+
+First, one of the limitations of empirical Bayes is that its approximations become inaccurate when you have only a few observations. But modern datasets often offer thousands or millions of observations, such as purchases of a product, visits to a page, or clicks on an ad. There's thus often little difference between the solutions offered by traditional Bayesian methods and the approximations of empirical Bayes.
+
+Secondly, empirical Bayes offers "shortcuts" that allow for easy computation at scale. Full Bayesian methods that use Markov Chain Monte Carlo (MCMC) are useful when performance is less important than accuracy, such as analyzing a scientific study. However, production systems often need to perform estimation in a fraction of a second, and run them thousands or millions of times each day. Empirical Bayesian methods, such as the ones we discuss in this book, can make this process easy.
+
+One motivation I had for writing this book is that I've found empirical Bayes is not only useful, but undertaught. Education on Bayesian statistics often has two steps:
+
+* **Introduction to Bayes' Theorem**: This includes popular guides like [An Intuitive Explanation of Bayes' Theorem](http://www.yudkowsky.net/rational/bayes). They introduce priors and posteriors, and show simple distributions, often individual events (e.g. $\Pr(A|B)$). These are a great introduction to the mathematical concepts, but don't show how you would use Bayesian methods to analyze a real dataset.
+
+* **Full Bayesian models**: [Bayesian Data Analysis](http://www.stat.columbia.edu/~gelman/book/), by Gelman et al, is a classic example. It's an extraordinary text that focuses on applications useful to data analysts, diving deep into methods such as Markov Chain Monte Carlo (MCMC) sampling. However, the empirical Bayesian approach is relegated to a few pages in Chapter 5.
+
+### Why baseball?
+
+I've been a fan of baseball for long before I worked in statistics, so this example came naturally to me and was easy to extend to cover a variety of mathematical topics. However, in truth this book isn't really about baseball.
+
+I originally wanted to write about using empirical Bayes to analyze ad clickthrough rates (CTRs), which is a large part of my job as a data scientist at Stack Overflow. But I realized two things: the data I was analyzing was proprietary and couldn't be shared with readers, and it was very unlikely to be interesting except to other data scientists.
+
+I believe that mathematical explorations should happen alongside analyses of real and interesting data, and the Lahman dataset certainly qualifies. It's thorough and accurate, it's easily accessed from R through the Lahman package [@R-Lahman], and it allows us to address real sports issues.
+
+In truth, I'm still not sure how accessible these explanations are to a reader. I have friends with little patience for sports who have still gotten a great deal out of the blog series, and others who are alienated by the subject matter. I would strongly encourage you to give the book a chance: there is less discussion o baseball than one might expect, and I explain the material as I go. (Similarly, sports fans and baseball statisticians will find the book's discussions of baseball quite elementary, though they may still learn from the math).
+
+## Organization
+
+This book is divided into four parts.
+
+**Part I: Empirical Bayes** is an introduction to the beta-binomial model and to the basics of the empirical Bayesian approach.
+
+* Chapter \@ref(beta-distribution) introduces the **beta distribution**, and demonstrates how it relates to the binomial, through the example of batting averages in baseball statistics.
+* Chapter \@ref(empirical-bayes) describes **empirical Bayes estimation**, which we use to estimate each player's batting average while taking into account that some players have more evidence than others.
+* Chapter \@ref(credible-intervals) discusses **credible intervals**, which quantify the uncertainty in each estimate.
+
+**Part II: Hypothesis Testing** discusses two examples of the Bayesian approach to testing specific claims.
+
+* Chapter \@ref(hypothesis-testing) describes the process of **hypothesis testing** in comparing each observation to a fixed point, as well as the Bayesian approach to controlling the false discovery rate (FDR).
+* Chapter \@ref(ab-testing) is a guide to **Bayesian A/B testing**, specifically the problem of comparing two players to determine which is the better batter.
+
+**Part III: Extending the Model** introduces new complications, expanding the beta-binomial . These kind of extensions show how flexible the empirical Bayes approach is in analyzing data.
+
+* Chapter \@ref(regression)...
+
+**Part III: Extending the Model** discusses several extensions to the beta-binomial approach.
+
+### How to read this book
+
+This book describes code examples . 
+
+Every chapter starts with a *Setup* section that contains code. 
+
+### Style
+
+When discussing code and mathematical methods, I generally prefer the **inclusive first person plural** (e.g. "Notice that we've improved our estimate..."). I use the first person singular when discussing my own preferences, such as in most of this introduction.
+
+I also default towards a more casual and conversational tone than most mathematical texts. If you already find it unappealing, it's not going to get any better.
+
+### Colophon
+
+The source of this book is published in the repository [dgrtwo/empirical-bayes-book](http://github.com/dgrtwo/empirical-bayes-book). If you find typos or bugs, I would greatly appreciate a pull request. This book is electronic only (not print), so you can expect frequent updates.
+
+You can compile the book with the [bookdown](https://bookdown.org/yihui/bookdown/) package with the line
+
+    rmarkdown::render_site(encoding = 'UTF-8')
+
+```{r include=FALSE}
+# automatically create a bib database for R packages
+knitr::write_bib(c(
+  .packages(), 'bookdown', 'knitr', 'rmarkdown', 'gamlss', 'broom', 'VGAM', 'DirichletMultinomial', 'Lahman'), 'packages.bib')
+```

@@ -1,0 +1,238 @@
+# (PART) Hypothesis testing {-}
+
+# Hypothesis testing and FDR {#hypothesis-testing}
+
+```{r, echo = FALSE}
+library(knitr)
+opts_chunk$set(cache = TRUE, warning = FALSE, message = FALSE, tidy = FALSE, fig.height = 5, fig.width = 6.67, out.height = "3in",out.width = "4in")
+options(digits = 3)
+library(scales)
+
+library(ggplot2)
+theme_set(theme_bw())
+```
+
+So far, we've been able to construct both point estimates and credible intervals from on each player's batting performance, while taking into account that we have more information about some players than others.
+
+But sometimes, rather than estimating a value, we're looking to answer a yes or no question about each hypothesis, and thus classify them into two groups. For example, suppose we were constructing a Hall of Fame, where we wanted to include all players that have a batting probability (chance of getting a hit) greater than .300. We want to include as many players as we can, but we need to be sure that each belongs.
+
+In the case of baseball, this is just for illustration- in real life, there are a lot of other, better metrics to judge a player by! But the problem of *hypothesis testing* appears whenever we're trying to identify candidates for future study. We need a principled approach to decide which players are worth including, and that can handle multiple testing problems.[^multipletesting] To solve this, we're going to apply a Bayesian approach to a method usually associated with frequentist statistics, namely **false discovery rate control**.
+
+[^multipletesting]: Multiple testing is a common issue in statistics, based on the fact that if you test many hypotheses, a few will "get lucky" and appear positive just by chance. For example, if you tested a thousand fair coins, a few might get 8 heads in a row; that wouldn't mean they were rigged coins.
+
+This approach is very useful outside of baseball, and even outside of beta/binomial models. We could be asking which genes in an organism are related to a disease, which answers to a survey have changed over time, or which counties have an unusually high incidence of a disease. Knowing how to work with posterior predictions for many observations, and come up with a set of candidates for further study, is an essential skill in data science.
+
+## Setup code
+
+As usual, we start with code that sets up the variables analyzed in this chapter.
+
+```{r lahman_05}
+library(dplyr)
+library(tidyr)
+library(Lahman)
+
+career <- Batting %>%
+  filter(AB > 0) %>%
+  anti_join(Pitching, by = "playerID") %>%
+  group_by(playerID) %>%
+  summarize(H = sum(H), AB = sum(AB)) %>%
+  mutate(average = H / AB)
+
+career <- Master %>%
+  tbl_df() %>%
+  dplyr::select(playerID, nameFirst, nameLast) %>%
+  unite(name, nameFirst, nameLast, sep = " ") %>%
+  inner_join(career, by = "playerID")
+
+# values estimated by maximum likelihood in Chapter 3
+alpha0 <- 101.4
+beta0 <- 287.3
+
+career_eb <- career %>%
+  mutate(eb_estimate = (H + alpha0) / (AB + alpha0 + beta0),
+         alpha1 = H + alpha0,
+         beta1 = AB - H + beta0)
+```
+
+## Posterior Error Probabilities
+
+```{r echo = FALSE}
+hank_aaron <- career_eb %>%
+  filter(name == "Hank Aaron")
+
+hank_aaron_average <- hank_aaron$eb_estimate
+```
+
+Consider the legendary player [Hank Aaron](https://en.wikipedia.org/wiki/Hank_Aaron). His career batting average is `r sprintf("%.4f", hank_aaron$average)`, but we'd like to base our Hall of Fame admission on his "true probability" of hitting. Should he be permitted in our >.300 Hall of Fame?
+
+When Aaron's batting average is shrunken by empirical Bayes (Chapter \@ref(empirical-bayes)), we get an estimate of `r sprintf("%.4f", hank_aaron$eb_estimate)`. We thus *suspect* that his true probability of hitting is higher than .300, but we're not necessarily certain of that. As we did in Chapter \@ref(credible-intervals), let's take a look at his posterior beta distribution (Figure \@ref(fig:aaronposterior)).
+
+```{r aaronposterior, echo = FALSE, fig.cap = "The posterior distribution for the true batting average of Hank Aaron (3771 H / 12364 AB). The batting average .3 is marked as a dashed red line, and the region where his batting average is less than .3 is shaded."}
+career_eb %>%
+  filter(name == "Hank Aaron") %>%
+  do(data_frame(x = seq(.27, .33, .0002),
+                density = dbeta(x, .$alpha1, .$beta1))) %>%
+  ggplot(aes(x, density)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = 0, ymax = density * (x < .3)),
+              alpha = .1, fill = "red") +
+  geom_vline(color = "red", lty = 2, xintercept = .3) +
+  labs(x = "Batting average")
+```
+
+We can see that there is a nonzero probability (shaded) that his true probability of hitting is less than .3. We can calulate this probability with the cumulative distribution function (CDF) of the beta distribution, which in R is computed by the [pbeta](https://stat.ethz.ch/R-manual/R-patched/library/stats/html/Beta.html) function.
+
+```{r dependson = "lahman_05"}
+career_eb %>%
+  filter(name == "Hank Aaron")
+
+pbeta(.3, 3850, 8818)
+```
+
+This probability that he doesn't belong in the Hall of Fame is called the **Posterior Error Probability**, or **PEP**.[^pip] It's equally straightforward to calculate the PEP for every player, just like we calculated the credible intervals for each player in Chapter \@ref(credible-intervals).
+
+[^pip]: We could just as easily have calculated the probability Aaron *does* belong, which is Posterior Inclusion Probability, or PIP. (Note that $\mbox{PIP}=1-\mbox{PEP}$) The reason we chose to measure the PEP rather than the PIP will become clear once we introduce the false discovery rate.
+
+```{r PEP, dependson = "lahman_05"}
+career_eb <- career_eb %>%
+    mutate(PEP = pbeta(.3, alpha1, beta1))
+```
+
+What can examine the distribution of the PEP across players in Figure \@ref(fig:pephistogram). Unsurprisingly, for most players, it's almost certain that they *don't* belong in the hall of fame: we know that their batting averages are below .300. If they were included, it is almost certain that they would be an error. In the middle are the borderline players: the ones where we're not sure. And down there close to 0 are the rare but proud players who we're (effectively) certain belong in the hall of fame.
+
+```{r pephistogram, echo = FALSE, dependson = "PEP", fig.cap = "Histogram of posterior error probability (PEP) values across all players."}
+ggplot(career_eb, aes(PEP)) +
+    geom_histogram(binwidth = .05) +
+    xlab("Posterior Error Probability (PEP)")
+```
+
+Note that the PEP is closely related to the estimated batting average, as shown in Figure \@ref(fig:pepaverage). Notice that crossover point: to have a PEP less than 50%, you need to have a shrunken batting average greater than .300. That's because the shrunken estimate is the center of our posterior beta distribution (the "over/under" point). If a player's shrunken estimate is above .300, it's more likely than not that their true average is as well. And the players we're not sure about (PEP $\approx$ .5) have batting averages very close to .300.
+
+```{r pepaverage, dependson = "PEP", echo = FALSE, fig.cap = "Relationship of the shrunken batting average and the posterior error probability of whether the player's batting average is > .3. The value .300 is marked as a dashed red line."}
+career_eb %>%
+    ggplot(aes(eb_estimate, PEP, color = AB)) +
+    geom_point(size = 1) +
+    xlab("(Shrunken) batting average estimate") +
+    ylab("Posterior Error Probability (PEP)") +
+    geom_vline(color = "red", lty = 2, xintercept = .3) +
+    scale_colour_gradient(trans = "log", breaks = 10 ^ (1:5))
+```
+
+Notice also the relationship between the number of at-bats (the amount of evidence) and the PEP. If a player's shrunken batting average is .28, but he hasn't batted many times, it is still possible his true batting average is above .3 (the credible interval is wide). However, if a player with a score of .28 has a high AB (light blue), the credible interval becomes thinner, we become confident that the true probability of hitting is under .3, and the PEP goes up to 1.
+
+## False Discovery Rate
+
+Now we want to set some threshold for inclusion in our Hall of Fame. This criterion is up to us: what kind of goal do we want to set? There are many options, but I'll propose one common in statistics: *let's try to include as many players as possible, while ensuring that no more than 5% of the Hall of Fame was mistakenly included.*  Put another way, we want to ensure that *if you're in the Hall of Fame, the probability you belong there is at least 95%*.
+
+This criterion is called **false discovery rate control**. It's particularly relevant in scientific studies, where we might want to come up with a set of candidates (e.g. genes, countries, individuals) for future study. There's nothing special about 5%: if we wanted to be more strict, we could choose the same policy, but change our desired FDR to 1% or .1%. Similarly, if we wanted a broader set of candidates to study, we could set an FDR of 10% or 20%.
+
+Let's start with the easy cases. Who are the players with the lowest posterior error probability?
+
+```{r by_PEP, echo = FALSE}
+by_PEP <- career_eb %>%
+  arrange(PEP) %>%
+  mutate(rank = row_number()) %>%
+  dplyr::select(rank, name, H, AB, eb_estimate, PEP)
+
+by_PEP %>%
+  head(10) %>%
+  knitr::kable(booktabs = TRUE)
+```
+
+These players are a no-brainer for our Hall of Fame: there's basically no risk in including them. But suppose we instead tried to include the top 100. What do the 90th-100th players look like?
+
+```{r by_PEP_90_100, dependson = "by_PEP", echo = FALSE}
+by_PEP %>%
+  slice(90:100) %>%
+  knitr::kable(booktabs = TRUE)
+```
+
+These players are borderline (like Hank Aaron at `r which(by_PEP$name == "Hank Aaron")`). We would guess that their career batting average is greater than .300, but we aren't as certain.
+
+Let's say we chose to take the top 100 players for our Hall of Fame (thus, cut it off at `r by_PEP$name[100]`). What would we predict the false discovery rate to be? That is, what fraction of these 100 players would be falsely included?
+
+```{r top_players, dependson = "PEP"}
+top_players <- career_eb %>%
+  arrange(PEP) %>%
+  head(100)
+```
+
+Well, we know the PEP of each of these 100 players, which is the probability that that individual player is a false positive. This means we can just add up these probabilities to get the expected value (the average) of the total number of false positives.[^linearity]
+
+```{r}
+sum(top_players$PEP)
+```
+
+This means that of these 100 players, we expect that about four and a half of them are false discoveries. Now, we don't know *which* four or five players we are mistaken about! (If we did, we could just kick them out of the hall). But we can make predictions about the players in aggregate. Here, we can see that taking the top 100 players would get pretty close to our goal of FDR = 5%.
+
+[^linearity]: If it's not clear why you can add up the probabilities like that, check out [this explanation of linearity of expected value](https://www.quora.com/What-is-an-intuitive-explanation-for-the-linearity-of-expectation)).
+
+Note that we're calculating the FDR as $4.43 / 100=4.43\%$. Thus, we're really computing the *mean* PEP: the average Posterior Error Probability.
+
+```{r dependson = "PEP"}
+mean(top_players$PEP)
+```
+
+We could have asked the same thing about the first 50 players, or the first 200. For each Hall of Fame cutoff we set, we could calculate a false discovery rate.
+
+```{r sorted_PEP, dependson = "PEP"}
+sorted_PEP <- career_eb %>%
+  arrange(PEP)
+
+mean(head(sorted_PEP$PEP, 50))
+mean(head(sorted_PEP$PEP, 200))
+```
+
+## Q-values
+
+We could experiment with many thresholds to get our desired FDR for each. But it's even easier just to compute them all thresholds at once, by computing the cumulative mean of all the (sorted) posterior error probabilities. This cumulative mean is called a **q-value**.[^cummean]
+
+[^cummean]: This approach uses the `cummean` function from dplyr, short for "cumulative mean". For example, `cummean(c(1, 2, 6, 10))` returns `(1, 1.5, 3, 4.75)`.
+
+```{r qvalue}
+career_eb <- career_eb %>%
+  arrange(PEP) %>%
+  mutate(qvalue = cummean(PEP))
+```
+
+The term q-value was first defined by John Storey [@Storey2002] as an analogue to the p-value for controlling FDRs in multiple testing. The q-value is convenient because we can say "to control the FDR at X%, collect only hypotheses where $q < X$".
+
+```{r dependson = "qvalue"}
+hall_of_fame <- career_eb %>%
+  filter(qvalue < .05)
+```
+
+Controlling at 5% ends up with `r nrow(hall_of_fame)` players in the Hall of Fame. If we wanted to be more careful about letting players in, we'd simply set a stricter q-value threshold, such as 1%.
+
+```{r dependson = "qvalue"}
+strict_hall_of_fame <- career_eb %>%
+  filter(qvalue < .01)
+```
+
+At that point we'd include only `r nrow(strict_hall_of_fame)` players.
+
+```{r qvaluethresholds, dependson = "qvalue", echo = FALSE, fig.cap = "Comparison of the q-value threshold (for finding players with an average above .300) and the number of players that would be included at that threshold."}
+career_eb %>%
+  filter(qvalue < .3) %>%
+  ggplot(aes(qvalue, rank(PEP))) +
+  geom_line() +
+  scale_x_continuous(labels = percent_format()) +
+  xlab("q-value threshold") +
+  ylab("Number of players included at this threshold")
+```
+
+It's useful to look at how many players would be included at various q-value thresholds (Figure \@ref(fig:qvaluethresholds)). This shows that you could include 200 players in the Hall of Fame, but at that point you'd expect that more than 25% of them would be incorrectly included. On the other side, you could create a hall of 50 players and be very confident that all of them have a batting probability of .300.
+
+It's worth emphasizing the difference between measuring an individual's posterior error probability and the q-value, which is the false discovery rate of a group including that player. Hank Aaron has a PEP of 17%, but he can be included in the Hall of Fame while keeping the FDR below 5%. If this is surprising, imagine that you were instead trying to keep the average *height* of the group above 6'0". You would start by including all players taller than 6'0", but could also include some players who were 5'10" or 5'11" while preserving your average. Similarly, we simply need to keep the average PEP of the players below 5%.[^pep]
+
+[^pep]: For this reason, the PEP is sometimes called the *local* false discovery rate, which emphasizes both the connection and the distinction between PEP and FDR.
+
+## Frequentists and Bayesians; meeting in the middle
+
+Before we move on, there's an interesting statistical implication to this analysis. So far in this book, we've been taking a Bayesian approach to our estimation and interpretation of batting averages. We haven't really used any frequentist statistics: in particular, we haven't seen a single p-value or null hypothesis. Now we've used our posterior distributions to compute q-values, and used that to control false discovery rate.
+
+But it's relevant to note that the q-value was originally defined in terms of null hypothesis significance testing, particularly as a transformation of p-values under multiple testing [@Storey:2003p1760]. By calculating, and then averaging, the posterior error probability, we've found another way to control FDR. This connection is explored in two great papers from my former advisor, [@Storey:2003p1086] and [@Käll2008].
+
+There are some notable differences between our approach here and typical FDR control.[^gelman], but this is a great example of the sometimes underappreciated technique of examining the frequentist properties of Bayesian approaches- and, conversely, understanding the Bayesian interpretations of frequentist goals.
+
+[^gelman]: One major difference is that we aren't defining a null hypothesis (we aren't assuming any players have a batting average exactly *equal* to .300), but are instead trying to avoid [what Andrew Gelman calls "Type S errors"](http://andrewgelman.com/2004/12/29/type_1_type_2_t/): getting the "sign" of an effect wrong.

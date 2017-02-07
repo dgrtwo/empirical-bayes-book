@@ -1,0 +1,461 @@
+# Mixture models and expectation-maximization {#mixture-models}
+
+```{r, echo = FALSE}
+library(knitr)
+opts_chunk$set(cache = TRUE, warning = FALSE, message = FALSE, tidy = FALSE, fig.height = 5, fig.width = 6.67, out.height = "3in", out.width = "4in")
+options(digits = 3)
+
+library(ggplot2)
+theme_set(theme_bw())
+library(scales)
+```
+
+So far, we've been treating our overall distribution of batting averages as a beta distribution, which is a simple distribution between 0 and 1 that has a single peak. But what if that weren't a good fit? For example, what if we had a [multimodal](https://en.wikipedia.org/wiki/Multimodal_distribution) distribution, with multiple peaks?
+
+In this chapter, we're going to consider what to do when your binomial proportions are made up of multiple peaks, and when you don't know which observation belongs to which clusters. For example, so far in our analysis we've been filtering out pitchers, who tend to have a much lower batting average than non-pitchers. If you include them, the data instead have two separate modes.
+
+Imagine that you *didn't know* which players were pitchers, and you wanted to separate the data into two groups according to your best prediction. This is very common in practical machine learning applications, such as clustering and segmentation.
+
+We'll now examine [mixture models](https://en.wikipedia.org/wiki/Mixture_model), where we treat the distribution of batting averages as a **mixture of two beta-binomial distributions**, and need to guess which player belongs to which group. This will also introduce the concept of an [expectation-maximization algorithm](https://en.wikipedia.org/wiki/Expectation%E2%80%93maximization_algorithm), which is important in both Bayesian and frequentist statistics. We'll show how to calculate a posterior probability for the cluster each player belongs to, and see that mixture models are still a good fit for the empirical Bayes framework.
+
+## Setup
+
+As usual, we start with code that sets up the variables analyzed in this chapter. [^subset]
+
+[^subset]: We're changing this analysis slightly to look only at National League batters since the year 1980. Why? Because National League pitchers are required to bat (while American League pitchers don't in typical games), and because focusing on modern batters helps reduce the noise within each group.
+
+```{r career}
+library(dplyr)
+library(tidyr)
+library(Lahman)
+library(ggplot2)
+theme_set(theme_bw())
+
+# Identify those who have pitched at least three games
+pitchers <- Pitching %>%
+  group_by(playerID) %>%
+  summarize(gamesPitched = sum(G)) %>%
+  filter(gamesPitched > 3)
+
+career <- Batting %>%
+  filter(AB > 0, lgID == "NL", yearID >= 1980) %>%
+  group_by(playerID) %>%
+  summarize(H = sum(H), AB = sum(AB), year = mean(yearID)) %>%
+  mutate(average = H / AB,
+         isPitcher = playerID %in% pitchers$playerID)
+
+# Add player names
+career <- Master %>%
+  tbl_df() %>%
+  dplyr::select(playerID, nameFirst, nameLast, bats) %>%
+  unite(name, nameFirst, nameLast, sep = " ") %>%
+  inner_join(career, by = "playerID")
+```
+
+We've been filtering out pitchers in the previous chapters, which make batting averages look roughly like a beta distribution. But when we leave them in, the data looks a lot less like a beta, as shown in Figure \@ref(fig:battingwpitchers).
+
+```{r battingwpitchers, dependson = "career", echo = FALSE, fig.cap = "The distribution of batting averages when pitchers are included. The beta distribution that would be fit by maximum likelihood is shown as a dashed line."}
+fit_bb_mle <- function(x, n) {
+  ll <- function(alpha, beta) {
+    -sum(VGAM::dbetabinom.ab(x, n, alpha, beta, log = TRUE))
+  }
+  m <- stats4::mle(ll, start = list(alpha = 30, beta = 100),
+                   method = "L-BFGS-B", lower = c(0.0001, .1))
+  ab <- stats4::coef(m)
+  data_frame(alpha = ab[1], beta = ab[2])
+}
+
+batting_w_pitchers <- Batting %>%
+  filter(AB >= 50, lgID == "NL", yearID > 1985) %>%
+  group_by(playerID) %>%
+  summarize(H = sum(H), AB = sum(AB), year = mean(yearID)) %>%
+  mutate(average = H / AB,
+         isPitcher = ifelse(playerID %in% pitchers$playerID, "Pitcher", "Non-Pitcher"),
+         isPitcher = relevel(factor(isPitcher), "Pitcher"))
+
+fit <- fit_bb_mle(batting_w_pitchers$H, batting_w_pitchers$AB)
+
+batting_w_pitchers %>%
+  ggplot(aes(average, fill = isPitcher)) +
+  geom_histogram(bins = 30) +
+  stat_function(fun = function(x) 30 * dbeta(x, fit$alpha, fit$beta), lty = 2) +
+  xlim(0, .4) +
+  labs(fill = "",
+       x = "Batting average (H / AB)")
+```
+
+The dashed density curve represents the beta distribution we would naively fit to this data. We can see that unlike our earlier analysis, where we'd filtered out pitchers, the beta is not a good fit- but that it's plausible that we could fit the data using *two* beta distributions, one for pitchers and one for non-pitchers.
+
+In this example, we know which players are pitchers and which aren't. But if we didn't, we would need to assign each player to a distribution, or "cluster", before performing shrinkage on it. In a real analysis it's not realistic that we wouldn't know which players are pitchers, but it's an excellent illustrative example of a mixture model and of expectation-maximization algorithms.
+
+## Expectation-maximization
+
+The challenge of mixture models is that at the start, we don't know which observations belong to which cluster, nor what the parameters of each distribution is. It's difficult to solve these problems at the same time- so an expectation-maximization (EM) algorithm takes the jump of estimating them one at a time, and **alternating** between them.
+
+The first thing to do in an EM clustering algorithm is to assign our clusters **randomly**.
+
+```{r starting_data, dependson = "career"}
+set.seed(2016)
+
+# We'll fit the clusters only with players that have had at least 20 at-bats
+starting_data <- career %>%
+  filter(AB >= 20) %>%
+  select(-year, -bats, -isPitcher) %>%
+  mutate(cluster = factor(sample(c("A", "B"), n(), replace = TRUE)))
+```
+
+### Maximization
+
+Now that we've got cluster assignments, we can examine the densities of each cluster (Figure \@ref(fig:startingdatadensity)). It doesn't look like much of a division- they have basically the same density! That's OK: one of the nice features of expectation-maximization is that we don't actually have to start with good clusters to end up with a good result.
+
+```{r startingdatadensity, dependson = "starting_data", echo = FALSE, fig.cap = "The density of batting averages among players assigned to cluster A or to cluster B."}
+starting_data %>%
+  ggplot(aes(average, color = cluster)) +
+  geom_density()
+```
+
+We'll now write a function for fitting a beta-binomial distribution using maximum likelihood estimation (and the `dbetabinom.ab` function from the VGAM package). This is a process we performed before in Chapter \@ref(mle-prior): here we're just encapsulating it into a function.[^abrelationship]
+
+[^abrelationship]: For the sake of simplicity, we didn't use our beta-binomial regression approach from Chapter \@ref(regression) that takes into account the relationship between batting average and AB. In a more comprehensive model, we could change the maximization step to incorporate that estimation.
+
+```{r fit_bb_mle}
+library(VGAM)
+
+fit_bb_mle <- function(x, n) {
+  # dbetabinom.ab is the likelihood function for a beta-binomial
+  # using n, alpha and beta as parameters
+  ll <- function(alpha, beta) {
+    -sum(dbetabinom.ab(x, n, alpha, beta, log = TRUE))
+  }
+  m <- stats4::mle(ll, start = list(alpha = 3, beta = 10),
+                   method = "L-BFGS-B", lower = c(0.001, .001))
+  ab <- stats4::coef(m)
+  data_frame(alpha = ab[1], beta = ab[2])
+}
+```
+
+For example, here are the alpha and beta chosen for the entire data as a whole:
+
+```{r dependson = c("fit_bb_mle", "starting_data")}
+fit_bb_mle(starting_data$H, starting_data$AB)
+```
+
+Now we're working with a mixture model, so finding $\alpha_0$ and $\beta_0$ for the overall data won't work. This time, we're going to fit the model within each of our (randomly assigned) clusters.
+
+```{r fits, dependson = c("fit_bb_mle", "starting_data")}
+fits <- starting_data %>%
+  group_by(cluster) %>%
+  do(fit_bb_mle(.$H, .$AB)) %>%
+  ungroup()
+
+fits
+```
+
+This was the maximization step: find the maximum likelihood parameters (in this case, two alpha/beta values, and a per-cluster probability), pretending we knew the assignments.
+
+### Expectation
+
+We now have an estimated density for each cluster (Figure \@ref(fig:clusterdensities)). It's worth noting that these are pretty similar distributions, and that neither is a good fit to the data.
+
+```{r clusterdensities, dependson = "fits", echo = FALSE, fig.cap = "Density within each of the randomly assigned clusters, along with a histogram of the cluster assignments."}
+fits %>%
+  crossing(x = seq(0, .4, .0001)) %>%
+  mutate(density = dbeta(x, alpha, beta)) %>%
+  ggplot() +
+  geom_histogram(aes(average, y = ..density.., fill = cluster), data = starting_data, alpha = .2) +
+  geom_line(aes(x, density, color = cluster))
+```
+
+However, notice that due to a small random difference, cluster B is **slightly** more likely than cluster A for batting averages above about .2, and vice versa below .2.
+
+Consider therefore that each player has a likelihood it would have been generated from cluster A, and a likelihood it would have been generated from cluster B. We can use `VGAM::dbetabinom.ab` to calculate these likelihoods.
+
+```{r crosses, dependson = "starting_data"}
+crosses <- starting_data %>%
+  select(-cluster) %>%
+  crossing(fits) %>%
+  mutate(likelihood = VGAM::dbetabinom.ab(H, AB, alpha, beta))
+
+crosses
+```
+
+For example, consider Jeff Abbott, who got 11 hits out of 42 at-bats. He had a `r percent(crosses$likelihood[1])` chance of getting that if he were in cluster A, but a `r percent(crosses$likelihood[2])` chance if he were in cluster B. For that reason (even though it's a small difference), we'll put him in B. Similarly we'll put Kyle Abbott in cluster A: 3/31 was more likely to come from that distribution.
+
+We can do that for every player using `group_by` and `top_n`:
+
+```{r assignments, dependson = "starting_data"}
+assignments <- starting_data %>%
+  select(-cluster) %>%
+  crossing(fits) %>%
+  mutate(likelihood = VGAM::dbetabinom.ab(H, AB, alpha, beta)) %>%
+  group_by(playerID) %>%
+  top_n(1, likelihood) %>%
+  ungroup()
+
+assignments
+```
+
+```{r assignmentsplot, dependson = "assignments", fig.cap = "Assignments of players to clusters based on the beta-binomial model.", echo = FALSE}
+ggplot(assignments, aes(average, fill = cluster)) +
+  geom_histogram()
+```
+
+That's the expectation step: **assigning each person to the most likely cluster**.
+
+Figure \@ref(fig:assignmentsplot) shows the histogram of player assignments. Something really important happened here: even though the two beta models we'd fit were very similar, we still split up the data rather neatly. Generally batters with a higher average ended up in cluster B, while batters with a lower average were in cluster A. (Note that due to B having a slightly higher prior probability, it was possible for players with a low average- but also a low AB- to be assigned to cluster B).
+
+### Iteration over expectation and maximization
+
+The above two steps got to a better set of assignments than our original, random ones. But there's no reason to believe these are as good as we can get. So we **repeat** the two steps, choosing new parameters for each distribution in the mixture and then making new assignments each time.
+
+```{r betabinomialrefit, dependson = "assignments", echo = FALSE, fig.cap = "Distribution of the beta-binomial density, fit to each of the clusters assigned in the last iteration."}
+assignments %>%
+  group_by(cluster) %>%
+  do(fit_bb_mle(.$H, .$AB)) %>%
+  ungroup() %>%
+  crossing(x = seq(0, .4, .0001)) %>%
+  mutate(density = .01 * nrow(assignments) * dbeta(x, alpha, beta)) %>%
+  ggplot() +
+  geom_histogram(aes(average, fill = cluster), data = assignments, alpha = .25, binwidth = .01) +
+  geom_line(aes(x, density, color = cluster))
+```
+
+For example, now that we've reassigned each player's cluster, we could re-fit the beta-binomial with the new assignments (Figure \@ref(fig:betabinomialrefit)). Unlike our first model fit, we can see that cluster A and cluster B have diverged a lot. Now we can take those parameters and perform a new estimation step. Generally we will do this multiple times, as an iterative process. This is the heart of an expectation-maximization algorithm, where we switch between assigning clusters (expectation) and fitting the model from those clusters (maximization).
+
+```{r iterations, dependson = "starting_data"}
+set.seed(1337)
+
+iterate_em <- function(state, ...) {
+  # maximization
+  fits <- state$assignments %>%
+    group_by(cluster) %>%
+    do(fit_bb_mle(.$H, .$AB)) %>%
+    ungroup()
+
+  # expectation
+  assignments <- state$assignments %>%
+    select(playerID:average) %>%
+    crossing(fits) %>%
+    mutate(likelihood = VGAM::dbetabinom.ab(H, AB, alpha, beta)) %>%
+    group_by(playerID) %>%
+    top_n(1, likelihood) %>%
+    ungroup()
+  
+  list(assignments = assignments, fits = fits)
+}
+
+library(purrr)
+init <- list(assignments = starting_data)
+iterations <- accumulate(1:5, iterate_em, .init = init)
+```
+
+Here I used the `accumulate` function from the `purrr` package, which is useful for running data through the same function repeatedly and keeping intermediate states. I haven't seen others use this tidy approach to EM algorithms, and there are [existing R approaches to mixture models](http://ase.tufts.edu/gsc/gradresources/guidetomixedmodelsinr/mixed%20model%20guide.html). I like this approach both because it's transparent about what we're doing in each iteration, and because our iterations are now combined in a tidy format that's easy to summarize and visualize.
+
+We could visualize how our assignments changed over the course of the iteration (Figure \@ref(fig:assignmentiterations)).
+
+```{r assignmentiterations, dependson = "iterations", echo = FALSE, fig.cap = "Histogram of the assignments of players to clusters A and B at each iteration of the expectation-maximization algorithm."}
+assignment_iterations <- iterations %>%
+  map_df("assignments", .id = "iteration")
+
+assignment_iterations %>%
+  ggplot(aes(average, fill = cluster)) +
+  geom_histogram() +
+  facet_wrap(~ iteration)
+```
+
+We notice that only the first few iterations led to a shift in the assignments, after which it appears to converge to stable assignments to clusters A and B. When the assignments converge, the estimated parameters will reach a steady point as well.
+
+```{r eval = FALSE}
+fit_iterations %>%
+  crossing(x = seq(.001, .4, .001)) %>%
+  mutate(density = dbeta(x, alpha, beta)) %>%
+  ggplot(aes(x, density, color = iteration, group = iteration)) +
+  geom_line() +
+  facet_wrap(~ cluster)
+```
+
+## Assigning players to clusters
+
+We now have estimated $\alpha$ and $\beta$ parameters for each of the two clusters.
+
+```{r final_parameters, dependson = "iterations"}
+final_parameters <- last(iterations)$fits
+
+final_parameters
+```
+
+How would we assign players to clusters to get a posterior probability that the player belongs to that cluster? Well, let's arbitrarily pick the six players that each batted exactly 100 times.
+
+```{r batter_100, echo = FALSE}
+batter_100 <- career %>%
+  filter(AB == 100) %>%
+  arrange(average) %>%
+  select(-playerID, -bats)
+
+batter_100 %>%
+  knitr::kable(booktabs = TRUE)
+```
+
+Notice that two of them actually were pitchers, and four were not. Where would our mixture model classify each of them? Well, we'd consider the likelihood each would get the number of hits they did if they were a pitcher in cluster A or a non-pitcher in cluster B (Figure \@ref(fig:clusterlikelihoods)).
+
+```{r clusterlikelihoods, echo = FALSE, fig.width = 6, fig.height = 6, out.height = "3in", out.width = "3in", fig.cap = "The likelihood that cluster A or cluster B would generate each of these six players' records."}
+final_parameters %>%
+  crossing(x = 0:45) %>%
+  mutate(density = VGAM::dbetabinom.ab(x, 100, alpha, beta)) %>%
+  ggplot(aes(x, density)) +
+  geom_line(aes(color = cluster)) +
+  geom_vline(aes(xintercept = H), data = batter_100, lty = 2) +
+  geom_text(aes(x = H, y = -.022, label = name), data = batter_100, hjust = 1, vjust = 1, angle = 270) +
+  labs(x = "H (out of 100 at-bats)",
+       y = "Likelihood of this H out of 100 hits")
+```
+
+By Bayes' Theorem, we can simply use the ratio of one likelihood (say, A in red) to the sum of the two likelihoods to get the posterior probability (Figure \@ref(fig:posteriorprobability)).
+
+```{r posteriorprobability, dependson = "final_parameters", echo = FALSE, fig.width = 6, fig.height = 6, out.height = "3in", out.width = "3in", fig.cap = "The posterior probability that each of the 6 players with 100 at-bats is in the pitcher cluster."}
+final_parameters %>%
+  crossing(H = 1:40) %>%
+  transmute(H, cluster, likelihood = VGAM::dbetabinom.ab(H, 100, alpha, beta)) %>%
+  spread(cluster, likelihood) %>%
+  mutate(probability_A = A / (A + B)) %>%
+  ggplot(aes(H, probability_A)) +
+  geom_line() +
+  geom_vline(aes(xintercept = H), data = batter_100, lty = 2) +
+  geom_text(aes(x = H, y = 0, label = name), data = batter_100, hjust = 1, vjust = 1, angle = 270) +
+  labs(x = "H (out of 100 at-bats)",
+       y = "(Likelihood if pitcher) / (Likelihood if pitcher + Likelihood if not)")
+```
+
+Based on this, we feel confident that Juan Nicasio and Jose de Jesus are pitchers, and that Ryan Shealy isn't, but we'd be a bit less sure about Mahoney, Cancel, and Busch.[^whichpitchers]
+
+[^whichpitchers]: By checking the `isPitcher` column in the table above, we can see that we were right about Nicasio, de Jesus, and Shealy. As it turns out none of Mahoney, Cancel, and Busch were pitchers, but were rather relatively weak batters.
+
+This allows us to assign all players in the dataset to one of the two clusters.
+
+```{r career_assignments, dependson = "final_parameters"}
+career_likelihoods <- career %>%
+  filter(AB > 20) %>%
+  crossing(final_parameters) %>%
+  mutate(likelihood = VGAM::dbetabinom.ab(H, AB, alpha, beta)) %>%
+  group_by(playerID) %>%
+  mutate(posterior = likelihood / sum(likelihood))
+
+career_assignments <- career_likelihoods %>%
+  top_n(1, posterior) %>%
+  ungroup()
+```
+
+Since we know whether each player actually is a pitcher or not, we can also compute a [confusion matrix](https://en.wikipedia.org/wiki/Confusion_matrix). How many pitchers were accidentally assigned to cluster B, and how many non-pitchers were assigned to cluster A? In this case we'll look only at the ones for which we had at least 80% confidence in our classification.
+
+```{r dependson = "career_assignments", echo = FALSE}
+career_assignments %>%
+  filter(posterior > .8) %>%
+  count(isPitcher, cluster) %>%
+  spread(cluster, n) %>%
+  ungroup() %>%
+  transmute("True category" = ifelse(isPitcher, "Pitcher", "Non-pitcher"), A, B) %>%
+  knitr::kable(booktabs = TRUE)
+```
+
+This isn't bad, considering the only information we used was the batting average. Note that we didn't even use data on who were pitchers to train the model, but just let the clusters of batting averages define themselves.
+
+## Empirical bayes shrinkage with a mixture model
+
+We've gone to all this work to find posterior probabilities of each player's assignments to one of two clusters. How can we use this in empirical Bayes shrinkage, or with the other methods we've described in this book?
+
+Well, consider that all of our other methods have worked because the posterior was another beta distribution (thanks to the beta being the conjugate prior of the binomial). However, now that each point might belong to one of two beta distributions, our posterior will be a *mixture* of betas. This mixture is made up of the posterior from each cluster, weighted by the probability the point belongs to that cluster.
+
+For example, consider the aforementioned six players who had exactly 100 at-bats. Their posterior distributions are shown in Figure \@ref(fig:posteriormixture).
+
+```{r posteriormixture, dependson = "career_assignments", echo = FALSE, fig.cap = "Posterior distributions for the batting average of each of the six players with 100 at-bats. Each player's raw batting average is shown as a dashed vertical line.", fig.width = 8, fig.height = 6, out.height = "3in", out.width = "4in"}
+batting_data <- career_likelihoods %>%
+  ungroup() %>%
+  filter(AB == 100) %>%
+  mutate(name = paste0(name, " (", H, "/", AB, ")"),
+         name = reorder(name, H),
+         alpha1 = H + alpha,
+         beta1 = AB - H + beta)
+
+batting_data %>%
+  crossing(x = seq(0, .4, .001)) %>%
+  mutate(posterior_density = posterior * dbeta(x, alpha1, beta1)) %>%
+  group_by(name, x) %>%
+  summarize(posterior_density = sum(posterior_density)) %>%
+  ggplot(aes(x, posterior_density, color = name)) +
+  geom_line(show.legend = FALSE) +
+  geom_vline(aes(xintercept = average), data = batting_data, lty = 2) +
+  facet_wrap(~ name) +
+  labs(x = "Batting average (actual average shown as dashed line)",
+       y = "Posterior density after updating")
+```
+
+For example, we are pretty sure that Jose de Jesus and Juan Nicasio are part of the "pitcher" cluster, so that makes up most of their posterior mass, and all of Ryan Shealy's density is in the "non-pitcher" cluster. However, we're pretty split on Mike Mahoney and Robinson Cancel: each could be a pitcher who is unusually good at batting, or a non-pitcher who is unusually bad.
+
+Can we perform shrinkage like we did in Chapter \@ref(empirical-bayes)? If our goal is still to find the mean of each posterior, then yes! Thanks to [linearity of expected value](https://en.wikipedia.org/wiki/Expected_value#Linearity), we can simply average the two distribution means, weighing each by the probability the player belongs to that cluster.
+
+$$\hat{p}=\Pr(A)\frac{\alpha_A+H}{\alpha_A+\beta_A + AB}+\Pr(B)\frac{\alpha_B+H}{\alpha_B+\beta_B + AB}$$
+
+This calculation can be performed in code as a `group_by()` and `summarize()` for each player.
+
+```{r eb_shrinkage, dependson = "posterior_mixture_plot"}
+eb_shrinkage <- career_likelihoods %>%
+  mutate(shrunken_average = (H + alpha) / (AB + alpha + beta)) %>%
+  group_by(playerID) %>%
+  summarize(shrunken_average = sum(posterior * shrunken_average))
+```
+
+For example, we are pretty sure that Jose de Jesus and Juan Nicasio are part of the "pitcher" cluster (high $\Pr(A)$, low $\Pr(B)$), which means they mostly get shrunken towards that center. We are quite certain Ryan Shealy is not a pitcher, so he'll be updated based entirely on the non-pitcher distribution.
+
+We can see how this affects the shrunken estimates, compared to shrinking towards a single prior, in terms of the relationship between AB and the estimate (Figure \@ref(fig:ebmixtureshrinkage)).
+
+```{r ebmixtureshrinkage, dependson = "eb_shrinkage", echo = FALSE, fig.cap = "Effect of empirical Bayes shrinkage towards either a single beta prior or a mixture model. The prior means of the overall model or the clusters are shown as dashed lines. Colors are assigned based on the mixture model.", fig.height = 6, fig.width = 8}
+library(forcats)
+
+cluster_means <- final_parameters$alpha / (final_parameters$alpha + final_parameters$beta)
+
+levs <- c("Raw batting average", "EB estimate", "EB estimate; mixture model")
+lines <- data_frame(type = factor(c("EB estimate", rep("EB estimate; mixture model", 2)), levs),
+                    value = c(fit$alpha / (fit$alpha + fit$beta), cluster_means))
+
+eb_shrinkage %>%
+  inner_join(career_assignments) %>%
+  filter(AB > 50) %>%
+  mutate(eb_estimate = (fit$alpha + H) / (fit$alpha + fit$beta + AB)) %>%
+  gather(type, estimate, average, eb_estimate, shrunken_average) %>%
+  mutate(type = fct_recode(type, "Raw batting average" = "average",
+                           "EB estimate" = "eb_estimate",
+                           "EB estimate; mixture model" = "shrunken_average"),
+         type = factor(type, levels = levs)) %>%
+  ggplot(aes(AB, estimate)) +
+  geom_point(aes(color = cluster)) +
+  geom_hline(aes(yintercept = value), lty = 2, data = lines) +
+  scale_x_log10() +
+  facet_wrap(~ type) +
+  geom_abline(color = "red") +
+  labs(y = "Estimated batting average",
+       color = "Assignment")
+```
+
+Notice that instead of shrinking towards a single value, as we would if we applied the estimation method from Chapter \@ref(empirical-bayes), the batting averages are now shrunken towards two centers: one higher value for the non-pitcher cluster, one smaller value for the pitcher cluster. Players that are exactly in between don't really get shrunken in either direction- they're "pulled equally" by both.
+
+Not all of the methods in this book are so easy to adapt to a multimodal distribution. For example, a credible interval (Chapter \@ref(credible-intervals)) is ambiguous in a multimodal distribution[^credibleambiguous], and we'd need to rethink our approach to Bayesian A/B testing (Chapter \@ref(ab-testing)). But since we do have a posterior distribution for each player- even though it's not a beta- we'd be able to face these challenges.
+
+[^credibleambiguous]: For example, we'd have to choose whether to pick the 2.5% and 97.5% quantiles, or to pick the 95% containing the most probability density. The latter might be *two separate intervals* for one observation, e.g. "the batting average is either in $(.15, .19)$ or in $(.25, .28)$".
+
+```{r ebmixtureshrinkageother, dependson = "eb_shrinkage", echo = FALSE, fig.cap = "Results of empirical Bayes shrinkage using the mixture model.", eval = FALSE}
+# don't use this; scrap if we want it later
+
+eb_shrinkage %>%
+  inner_join(career) %>%
+  mutate(eb_estimate = (alpha0 + H) / (alpha0 + beta0 + AB)) %>%
+  filter(AB > 50) %>%
+  gather(type, estimate, eb_estimate, shrunken_average) %>%
+#  mutate(type = ifelse(type == "average", "Raw batting average", "Shrunken from mixture model"),
+#         type = relevel(factor(type), "Raw batting average")) %>%
+  ggplot(aes(average, estimate, color = AB)) +
+  geom_point() +
+  scale_color_continuous(trans = "log10") +
+  facet_wrap(~ type) +
+  geom_abline(color = "red") +
+  ylab("Estimate")
+```
