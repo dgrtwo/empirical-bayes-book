@@ -1,4 +1,4 @@
-# The multinomial and the Dirichlet
+# The multinomial and the Dirichlet {#dirichlet-multinomial}
 
 ```{r, echo = FALSE}
 library(knitr)

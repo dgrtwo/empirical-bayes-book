@@ -1,10 +1,1 @@
-TODO:
-
-- Finish intro
-- Final pass
-- Write README
-- Write blog post
-- Upload to Gumroad
-
-OPTIONAL:
-- Consider writing a conclusion
+This is the source for the e-book **Introduction to Empirical Bayes: Examples from Baseball Statistics**. It is available for purchase from [store.varianceexplained.org](store.varianceexplained.org).

@@ -1,4 +1,4 @@
-# Simulating replications
+# Simulating replications {#simulating-replications}
 
 ```{r, echo = FALSE}
 library(knitr)
