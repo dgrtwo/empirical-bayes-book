@@ -33,7 +33,7 @@ When you work with pairs of successes/totals like this, you tend to get tripped 
 
 [^filteringdata]: One common approach is to filter out all cases that don't meet some minimum. But this isn't always an option, since you could be throwing away useful information, and since it's not generally clear where to set a threshold.
 
-In the last chapter, we learned how using the beta distribution to represent your prior expectations, and updating based on the new evidence, can help make your estimate more accurate and practical In this chapter, we'll explore the method we'll be using for the rest of this book: **empirical Bayes estimation**, where a beta distribution fit on all observations is then used to improve each individually. What's great about this method is that as long as you have a lot of examples, *you don't need to bring in prior expectations*.
+In the last chapter, we learned how using the beta distribution to represent your prior expectations, and updating based on the new evidence, can help make your estimate more accurate and practical. In this chapter, we'll explore the method we'll be using for the rest of this book: **empirical Bayes estimation**, where a beta distribution fit on all observations is then used to improve each individually. What's great about this method is that as long as you have a lot of examples, *you don't need to bring in prior expectations*.
 
 ## Setup: the Lahman baseball dataset
 
