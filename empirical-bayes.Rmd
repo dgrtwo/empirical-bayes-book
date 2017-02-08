@@ -102,7 +102,7 @@ career %>%
   geom_histogram(binwidth = .005)
 ```
 
-The first step of empirical Bayes estimation is to estimate a beta prior using this data. Estimating priors from the data you're currently analyzing is not the typical Bayesian approach- usually you decide on your priors ahead of time. There's a lot of debate and discussion about when and where it's appropriate to use empirical Bayesian methods, but it basically comes down to how many observations we have: if we have a lot, we can get a good estimate that doesn't depend much on any one individual. Empirical Bayes is an **approximation** to more exact Bayesian methods- and with the amount of data we have, it's a very good approximation.
+The first step of empirical Bayes estimation is to estimate a beta prior to using this data. Estimating priors from the data you're currently analyzing is not the typical Bayesian approach- usually you decide on your priors ahead of time. There's a lot of debate and discussion about when and where it's appropriate to use empirical Bayesian methods, but it basically comes down to how many observations we have: if we have a lot, we can get a good estimate that doesn't depend much on any one individual. Empirical Bayes is an **approximation** to more exact Bayesian methods- and with the amount of data we have, it's a very good approximation.
 
 So far, a beta distribution looks like a pretty appropriate choice based on the above histogram.[^whatbadchoice] So we know we want to fit the following model:
 
