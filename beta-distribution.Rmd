@@ -28,7 +28,9 @@ sim <- data_frame(a = c(1, 3, 50, 20),
 ggplot(sim, aes(x, y, color = Parameters)) +
   geom_line() +
   xlab("Batting average") +
-  ylab("Density of beta")
+  ylab("Density of beta") +
+  scale_x_continuous(labels = function(x) sprintf("%.3f", x))+
+  theme_minimal()
 ```
 
 Some distributions, like the normal, the binomial, and the uniform, are described in statistics education alongside their real world interpretations and applications, which means beginner statisticians usually gain a solid understanding of them. But I've found that the beta distribution is rarely explained in these intuitive terms- if its usefulness is addressed at all, it's often with dense terms like "conjugate prior" and "order statistic."[^betadensity] This is a shame, because the intuition behind the beta is pretty cool.
