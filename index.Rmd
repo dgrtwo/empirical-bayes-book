@@ -10,6 +10,7 @@ bibliography: [book.bib, packages.bib]
 biblio-style: apalike
 classoption: openany
 link-citations: yes
+cover-image: images/cover.png
 github-repo: dgrtwo/empirical-bayesball
 description: "An introduction to empirical Bayes methods in terms of batting averages in baseball statistics."
 ---
