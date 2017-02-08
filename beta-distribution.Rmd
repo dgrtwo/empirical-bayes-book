@@ -146,7 +146,7 @@ hit_100 <- simulations %>%
 hit_100
 ```
 
-What distribution of batting averages did these $100 / 300$ players have have? How good was the median player? We can tell with a histogram (Figure \@ref(fig:hit100hist)).
+What distribution of batting averages did these $100 / 300$ players have? How good was the median player? We can tell with a histogram (Figure \@ref(fig:hit100hist)).
 
 ```{r hit100hist, dependson = "hit_100", echo = FALSE, fig.cap = "Histogram of the true batting average of all the players who got exactly 100 hits. Shown in red is the density of $\\mbox{Beta}(81+100,219+200)$."}
 dens <- function(x) dbeta(x, 81 + 100, 219 + 200)
@@ -174,6 +174,6 @@ simulations %>%
        color = "H")
 ```
 
-We can see that the shape of the posteriors are be similar (following a beta distribution), but that they shift to accomodate the evidence. Thus, the "simulate from the prior, pull out the ones who matched our evidence" approach was able to combine the prior and the evidence.
+We can see that the shape of the posteriors are similar (following a beta distribution), but that they shift to accomodate the evidence. Thus, the "simulate from the prior, pull out the ones who matched our evidence" approach was able to combine the prior and the evidence.
 
-We won't need to keep generating millions of players in rest of this book: we'll just take the "add hits to $\alpha_0$, add misses to $\beta_0$" approach for granted. We'll revisit the approach of simulating data in Chapter \@ref(simulation), where we'll use it to test and evaluate our methods. Simulation can be useful for more than just checking the math: when Bayesian statisticians work with distributions that don't have a simple conjugate prior, they often use simulation approaches (such as [Metropolis-Hastings](https://en.wikipedia.org/wiki/Metropolis%E2%80%93Hastings_algorithm) or [Gibbs sampling](https://en.wikipedia.org/wiki/Gibbs_sampling)) that aren't that different from our approach here.
+We won't need to keep generating millions of players in the rest of this book: we'll just take the "add hits to $\alpha_0$, add misses to $\beta_0$" approach for granted. We'll revisit the approach of simulating data in Chapter \@ref(simulation), where we'll use it to test and evaluate our methods. Simulation can be useful for more than just checking the math: when Bayesian statisticians work with distributions that don't have a simple conjugate prior, they often use simulation approaches (such as [Metropolis-Hastings](https://en.wikipedia.org/wiki/Metropolis%E2%80%93Hastings_algorithm) or [Gibbs sampling](https://en.wikipedia.org/wiki/Gibbs_sampling)) that aren't that different from our approach here.
