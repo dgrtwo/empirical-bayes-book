@@ -216,7 +216,7 @@ career_sim_gathered %>%
 
 Notice how the variance around the true (red) line shrinks in the raw estimate, and the bias (the flatness of the gray dashed line) in the shrunken estimate decreases, until both look quite similar in the 1000+ bin.
 
-## Credible intervals {#credible-intervals}
+## Credible intervals {#simulation-credible-intervals}
 
 Besides the shrunken empirical Bayes estimates, the `add_ebb_estimate` function also adds credible intervals (Chapter \@ref(credible-intervals)) for each of our players. With our simulated data, we now know the true batting averages, and can see whether the intervals are accurate in representing the uncertainty. For example, we could visualize the credible intervals for 20 random players, and consider how often the interval captured the true batting average (Figure \@ref(fig:random20credintervals)).
 

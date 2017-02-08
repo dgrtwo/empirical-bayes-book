@@ -140,7 +140,7 @@ ggplot(sim_replication_mse, aes(type, mse)) +
 
 It looks like the MSE of empirical Bayes shrunken estimates was always much lower than the raw estimates, and was pretty consistent in its range. This is a good sign: even in 50 replications, it never fails "catastrophically." This is not true of all statistical methods!
 
-In Section \@ref(credible-intervals) we also saw that the credible intervals were well calibrated, where 95% credible intervals generally contained the true value about 95% of the time. We can now see if this is consistently true across replications (Figure \@ref(fig:simreplicationcoverage)). Indeed, it looks like the coverage of a 95% credible interval was generally between 94.4% and 95.5%.
+In Section \@ref(simulation-credible-intervals) we also saw that the credible intervals were well calibrated, where 95% credible intervals generally contained the true value about 95% of the time. We can now see if this is consistently true across replications (Figure \@ref(fig:simreplicationcoverage)). Indeed, it looks like the coverage of a 95% credible interval was generally between 94.4% and 95.5%.
 
 ```{r simreplicationcoverage, dependson = "sim_replication_au", echo = FALSE, fig.cap = "Distribution of the coverage probability of a 95\\% credible interval across simulations."}
 sim_replication_au %>%

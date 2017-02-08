@@ -148,7 +148,7 @@ eb_career %>%
 
 Notice that once we have the output from `add_ebb_estimate()`, we're no longer relying on the `ebbr` package, only on dplyr and ggplot2. 
 
-## Hierarchical modeling
+## Hierarchical modeling {#ebbr-hierarchical-modeling}
 
 In Chapters \@ref(regression) and \@ref(hierarchical-modeling), we examined how this beta-binomial model may not be appropriate, because of the relationship between a player's at-bats and their batting average. Good batters tend to have long careers, while poor batters may retire quickly.
 
@@ -222,7 +222,7 @@ augment(eb_career_prior, newdata = fake_data) %>%
 
 Since the `ebbr` package makes these models convenient to fit, you can try a few variations on the model and compare them.
 
-## Hypothesis testing
+## Hypothesis testing {#ebbr-hypothesis-testing}
 
 Chapter \@ref(hypothesis-testing) examined the problem of hypothesis testing. For example, we wanted to get a posterior probability for the statement "this player's true batting average is greater than .300", so that we could construct a "Hall of Fame" of such players.
 
@@ -287,7 +287,7 @@ compare_piazza %>%
 
 Just like the one-sample test, the function has added `.pep` and `.qvalue` columns. From this we can see a few players who we're extremely confident are better than Piazza.
 
-## Mixture models
+## Mixture models {#ebbr-mixture-models}
 
 This brings us to mixture models. In Chapter \@ref(mixture-models) we noticed that when pitchers are included, the data looks a lot less like a beta distribution and more like a combination of two betas. Fitting a mixture model, to separate out the two beta distributions so they could be shrunken separately, took a solid amount of code in that chapter.
 

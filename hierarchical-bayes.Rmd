@@ -200,7 +200,7 @@ Well, there's certainly a trend over time, but there's nothing linear about it: 
 * Batting average rose again in the 1970s thanks to the [designated hitter rule](https://en.wikipedia.org/wiki/Designated_hitter), where pitchers (in one of the two main leagues) were no longer required to bat
 * It looks like batting averages may [again be drifting downward](http://www.latimes.com/sports/la-sp-mlb-declining-offense-20150405-story.html)
 
-In any case, we certainly can't fit a simple linear trend here. To capture the nonlinear trend, we could instead fit a [natural cubic spline](Spline_interpolation) using the [ns function](http://www.inside-r.org/r-doc/splines/ns):[^df]
+In any case, we certainly can't fit a simple linear trend here. To capture the nonlinear trend, we could instead fit a [natural cubic spline](https://en.wikipedia.org/wiki/Spline_interpolation) using the [ns function](http://www.inside-r.org/r-doc/splines/ns):[^df]
 
 [^df]: Why 5 degrees of freedom? Not very scientific- I just tried a few and picked one that roughly captured the shapes we saw in the boxplots. If you have too few degrees of freedom you can't capture the complex trend we're seeing here, but if you have too many you'll overfit to noise in your data. If you're not familiar with splines, what's important is that even in a linear model, we can include nonlinear trends.
 
