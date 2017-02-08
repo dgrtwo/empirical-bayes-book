@@ -2,7 +2,7 @@
 
 ```{r, echo = FALSE}
 library(knitr)
-opts_chunk$set(cache = TRUE, warning = FALSE, message = FALSE, tidy = FALSE, fig.height = 5, fig.width = 6.67, out.height = "3in", out.width = "4in")
+opts_chunk$set(cache = TRUE, warning = FALSE, message = FALSE, tidy = FALSE, fig.height = 5, fig.width = 6.67)
 options(digits = 4)
 
 library(ggplot2)

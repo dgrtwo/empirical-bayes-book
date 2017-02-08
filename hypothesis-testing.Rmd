@@ -4,7 +4,7 @@
 
 ```{r, echo = FALSE}
 library(knitr)
-opts_chunk$set(cache = TRUE, warning = FALSE, message = FALSE, tidy = FALSE, fig.height = 5, fig.width = 6.67, out.height = "3in",out.width = "4in")
+opts_chunk$set(cache = TRUE, warning = FALSE, message = FALSE, tidy = FALSE, fig.height = 5, fig.width = 6.67)
 options(digits = 3)
 library(scales)
 
@@ -108,7 +108,7 @@ ggplot(career_eb, aes(PEP)) +
 
 Note that the PEP is closely related to the estimated batting average, as shown in Figure \@ref(fig:pepaverage). Notice that crossover point: to have a PEP less than 50%, you need to have a shrunken batting average greater than .300. That's because the shrunken estimate is the center of our posterior beta distribution (the "over/under" point). If a player's shrunken estimate is above .300, it's more likely than not that their true average is as well. And the players we're not sure about (PEP $\approx$ .5) have batting averages very close to .300.
 
-```{r pepaverage, dependson = "PEP", echo = FALSE, fig.cap = "Relationship of the shrunken batting average and the posterior error probability of whether the player's batting average is > .3. The value .300 is marked as a dashed red line."}
+```{r pepaverage, dependson = "PEP", echo = FALSE, fig.cap = "Relationship of the shrunken batting average and the posterior error probability of whether the player's batting average is greater than .3. The value .300 is marked as a dashed red line."}
 career_eb %>%
     ggplot(aes(eb_estimate, PEP, color = AB)) +
     geom_point(size = 1) +

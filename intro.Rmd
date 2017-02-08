@@ -16,7 +16,7 @@ This book originated as an answer to a [Stack Exchange question](http://stats.st
 
 As the blog series progressed, I realized I was building a narrative rather than a series of individual posts. Adapting it into a book allowed me to bring all the material into a consistent style and a cohesive order.[^marginnotes] Among the changes I've made from the blog version is to add a brand new chapter (Chapter \@ref(dirichlet-multinomial)) about the Dirichlet and the multinomial, and to expand and improve material in several other chapters, including a new explanation of the conjugate prior in Section \@ref(conjugate-prior).
 
-[^marginnotes]: For example, by choosing the Tufte book style I've been able to move some of the more extraneous material into margin notes like this one.
+[^marginnotes]: For example, I've moved some of the more extraneous material into footnotes like this one.
 
 ### Why empirical Bayes?
 

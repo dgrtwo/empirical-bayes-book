@@ -18,5 +18,7 @@ rmd_files: [
 
   "ebbr-package.Rmd",
   "simulation.Rmd",
-  "simulation-parameters.Rmd"
+  "simulation-parameters.Rmd",
+
+  "bibliography.Rmd"
 ]

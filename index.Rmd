@@ -1,9 +1,10 @@
 --- 
 title: "Introduction to Empirical Bayes"
+subtitle: "Examples from Baseball Statistics"
 author: "David Robinson"
 date: "`r Sys.Date()`"
 site: bookdown::bookdown_site
-output: bookdown::tufte_book2
+output: bookdown::epub_book
 documentclass: book
 bibliography: [book.bib, packages.bib]
 biblio-style: apalike

@@ -1,7 +1,3 @@
-bookdown::tufte_book2:
-  includes:
-    in_header: preamble.tex
-    before_body: dedication.tex
-    after_body: after.tex
-  latex_engine: xelatex
-  citation_package: natbib
+bookdown::epub_book:
+  toc: TRUE
+

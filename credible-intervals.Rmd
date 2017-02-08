@@ -2,7 +2,7 @@
 
 ```{r, echo = FALSE}
 library(knitr)
-opts_chunk$set(cache = TRUE, warning = FALSE, message = FALSE, tidy = FALSE, fig.height = 5, fig.width = 6.67, out.height="3in",out.width = "4in")
+opts_chunk$set(cache = TRUE, warning = FALSE, message = FALSE, tidy = FALSE, fig.height = 5, fig.width = 6.67)
 options(digits = 3)
 
 library(ggplot2)
@@ -197,8 +197,6 @@ These are sorted in order of how many times a player went up to bat (thus, how m
 
 The relationship between credible and confidence intervals is particularly deep in the case of estimating a proportion. Two of the most common methods for constructing frequentist confidence intervals, Clopper-Pearson (the default in R's `binom.test` function, as shown in Figure \@ref(fig:credible20)) and Jeffreys, actually use the quantiles of the Beta distribution in very similar ways, which is the reason credible and confidence intervals start looking identical once there's enough information.
 
-\begin{table}
-
 ```{r confinttable, echo = FALSE, results = "asis"}
 low_a <- paste0("$", c("\\alpha_0 + x", "1 / 2 + x", "x"), "$")
 low_b <- paste0("$", c("\\beta_0 + n - x", "1 / 2 + n - x", "n - x + 1"), "$")
@@ -213,16 +211,10 @@ tab <- data.frame(Method = c("Credible interval", "Jeffreys", "Clopper-Pearson")
 colnames(tab) <- c("Method", "$\\alpha_{\\mbox{low}}$", "$\\beta_{\\mbox{low}}$",
                    "$\\alpha_{\\mbox{high}}$", "$\\beta_{\\mbox{high}}$")
 
-knitr::kable(tab, escape = FALSE, format = "latex")
+knitr::kable(tab, escape = FALSE)
 ```
 
-\caption{\label{tab:confinttable}Formulae for computing a
-Bayesian credible interval, or a Jeffreys or Clopper-Pearson
-confidence interval.}
-
-\end{table}
-
-Table \@ref(tab:confinttable) shows the formulae for each of these intervals in terms the parameters one would use to the `qbeta` function in R. A particular 95% interval would be calculated as:
+This table shows the formulae for each of these intervals in terms the parameters one would use to the `qbeta` function in R. A particular 95% interval would be calculated as:
 
 $$[\mbox{qbeta}(0.025, \alpha_{\mbox{low}}, \beta_{\mbox{low}}), \mbox{qbeta}(0.975, \alpha_{\mbox{high}}, \beta_{\mbox{high}})]$$
 
