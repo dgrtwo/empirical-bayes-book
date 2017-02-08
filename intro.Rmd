@@ -8,7 +8,7 @@ There are people who can learn math from descriptions like that, but I'm not one
 
 When I was learning mathematical statistics, what I found most useful weren't proofs and definitions, but rather intuitive explanations applied to simple examples. I was lucky to have great teachers who showed me the way, and helped guide me towards a thorough appreciation of statistical theory. I've thus endeavoured to make my own contribution to this educational philosophy: an intuitive explanation for a statistical concept that I feel is overdue for one.
 
-This book introduces **empirical Bayes methods**, which are powerful tools for handling uncertainty across many observations. The methods introduced include estimation, credible intervals, A/B testing, hierarchical modeling, and other components of the philosophy. It teaches both the mathematical principles behind these and the code that you can adapt to explore your own data. It does so through the detailed extended of a single case study: that of **batting averages in baseball statistics**. I wrote it for people (like me) who need to understand and apply mathematical methods, but would rather work with real data than face down pages of equations.
+This book introduces **empirical Bayes methods**, which are powerful tools for handling uncertainty across many observations. The methods introduced include estimation, credible intervals, A/B testing, hierarchical modeling, and other components of the philosophy. It teaches both the mathematical principles behind these and the code that you can adapt to explore your own data. It does so through the detailed extension of a single case study: that of **batting averages in baseball statistics**. I wrote it for people (like me) who need to understand and apply mathematical methods, but would rather work with real data than face down pages of equations.
 
 ## Why this book?
 
@@ -61,7 +61,7 @@ This book is divided into four parts.
 
 **Part III: Extending the Model** introduces new complications, expanding the beta-binomial model to allow batting averages to depend on other factors. These kind of extensions show how flexible the empirical Bayes approach is in analyzing real data.
 
-* Chapter \@ref(regression) uses **beta-binomial regression** to show how the model can control for confounding factors that affect a player's performance
+* Chapter \@ref(regression) uses **beta-binomial regression** to show how the model can control for confounding factors that affect a player's performance.
 * Chapter \@ref(hierarchical-modeling) extends the regression example to take more information into account, such as time and whether a player is left-handed, as a particular case of a **hierarchical Bayesian model**.
 * Chapter \@ref(mixture-models) discusses **mixture models**, where each player may come from one of several prior distributions, and shows how to use expectation-maximization algorithms to estimate the mixture.
 * Chapter \@ref(dirichlet-multinomial) introduces the **Dirichlet and the multinomial** distributions, which unlike the beta-binomial model can handle more than two categories of hits, and uses them to perform empirical Bayes estimation of slugging averages.
