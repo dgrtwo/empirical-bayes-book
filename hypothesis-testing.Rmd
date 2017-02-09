@@ -1,6 +1,6 @@
 # (PART) Hypothesis testing {-}
 
-# Hypothesis testing and FDR {#hypothesis-testing}
+# Hypothesis testing and false discovery rate {#hypothesis-testing}
 
 ```{r, echo = FALSE}
 library(knitr)
@@ -12,7 +12,7 @@ library(ggplot2)
 theme_set(theme_bw())
 ```
 
-So far, we've been able to construct both point estimates and credible intervals from on each player's batting performance, while taking into account that we have more information about some players than others.
+So far, we've been able to construct both point estimates and credible intervals from each player's batting performance, while taking into account that we have more information about some players than others.
 
 But sometimes, rather than estimating a value, we're looking to answer a yes or no question about each hypothesis, and thus classify them into two groups. For example, suppose we were constructing a Hall of Fame, where we wanted to include all players that have a batting probability (chance of getting a hit) greater than .300. We want to include as many players as we can, but we need to be sure that each belongs.
 
@@ -86,7 +86,7 @@ We can see that there is a nonzero probability (shaded) that his true probabilit
 career_eb %>%
   filter(name == "Hank Aaron")
 
-pbeta(.3, 3850, 8818)
+pbeta(.3, 3872.4, 8880.3)
 ```
 
 This probability that he doesn't belong in the Hall of Fame is called the **Posterior Error Probability**, or **PEP**.[^pip] It's equally straightforward to calculate the PEP for every player, just like we calculated the credible intervals for each player in Chapter \@ref(credible-intervals).
@@ -98,7 +98,7 @@ career_eb <- career_eb %>%
     mutate(PEP = pbeta(.3, alpha1, beta1))
 ```
 
-What can examine the distribution of the PEP across players in Figure \@ref(fig:pephistogram). Unsurprisingly, for most players, it's almost certain that they *don't* belong in the hall of fame: we know that their batting averages are below .300. If they were included, it is almost certain that they would be an error. In the middle are the borderline players: the ones where we're not sure. And down there close to 0 are the rare but proud players who we're (effectively) certain belong in the hall of fame.
+We can examine the distribution of the PEP across players in Figure \@ref(fig:pephistogram). Unsurprisingly, for most players, it's almost certain that they *don't* belong in the hall of fame: we know that their batting averages are below .300. If they were included, it is almost certain that they would be an error. In the middle are the borderline players: the ones where we're not sure. And down there close to 0 are the rare but proud players who we're (effectively) certain belong in the hall of fame.
 
 ```{r pephistogram, echo = FALSE, dependson = "PEP", fig.cap = "Histogram of posterior error probability (PEP) values across all players."}
 ggplot(career_eb, aes(PEP)) +
@@ -124,7 +124,7 @@ Notice also the relationship between the number of at-bats (the amount of eviden
 
 Now we want to set some threshold for inclusion in our Hall of Fame. This criterion is up to us: what kind of goal do we want to set? There are many options, but I'll propose one common in statistics: *let's try to include as many players as possible, while ensuring that no more than 5% of the Hall of Fame was mistakenly included.*  Put another way, we want to ensure that *if you're in the Hall of Fame, the probability you belong there is at least 95%*.
 
-This criterion is called **false discovery rate control**. It's particularly relevant in scientific studies, where we might want to come up with a set of candidates (e.g. genes, countries, individuals) for future study. There's nothing special about 5%: if we wanted to be more strict, we could choose the same policy, but change our desired FDR to 1% or .1%. Similarly, if we wanted a broader set of candidates to study, we could set an FDR of 10% or 20%.
+This criterion is called **false discovery rate control** (FDR). It's particularly relevant in scientific studies, where we might want to come up with a set of candidates (e.g. genes, countries, individuals) for future study. There's nothing special about 5%: if we wanted to be more strict, we could choose the same policy, but change our desired FDR to 1% or .1%. Similarly, if we wanted a broader set of candidates to study, we could set an FDR of 10% or 20%.
 
 Let's start with the easy cases. Who are the players with the lowest posterior error probability?
 
@@ -163,11 +163,11 @@ Well, we know the PEP of each of these 100 players, which is the probability tha
 sum(top_players$PEP)
 ```
 
-This means that of these 100 players, we expect that about four and a half of them are false discoveries. Now, we don't know *which* four or five players we are mistaken about! (If we did, we could just kick them out of the hall). But we can make predictions about the players in aggregate. Here, we can see that taking the top 100 players would get pretty close to our goal of FDR = 5%.
+This means that of these 100 players, we expect that about five and a half of them are false discoveries. Now, we don't know *which* five or six players we are mistaken about! (If we did, we could just kick them out of the hall). But we can make predictions about the players in aggregate. Here, we can see that taking the top 100 players would get pretty close to our goal of FDR = 5%.
 
-[^linearity]: If it's not clear why you can add up the probabilities like that, check out [this explanation of linearity of expected value](https://www.quora.com/What-is-an-intuitive-explanation-for-the-linearity-of-expectation)).
+[^linearity]: If it's not clear why you can add up the probabilities like that, check out [this explanation of linearity of expected value](https://www.quora.com/What-is-an-intuitive-explanation-for-the-linearity-of-expectation).
 
-Note that we're calculating the FDR as $4.43 / 100=4.43\%$. Thus, we're really computing the *mean* PEP: the average Posterior Error Probability.
+Note that we're calculating the FDR as $5.80 / 100=5.80\%$. Thus, we're really computing the *mean* PEP: the average Posterior Error Probability.
 
 ```{r dependson = "PEP"}
 mean(top_players$PEP)
@@ -185,7 +185,7 @@ mean(head(sorted_PEP$PEP, 200))
 
 ## Q-values
 
-We could experiment with many thresholds to get our desired FDR for each. But it's even easier just to compute them all thresholds at once, by computing the cumulative mean of all the (sorted) posterior error probabilities. This cumulative mean is called a **q-value**.[^cummean]
+We could experiment with many thresholds to get our desired FDR for each. But it's even easier just to compute all thresholds at once, by computing the cumulative mean of all the (sorted) posterior error probabilities. This cumulative mean is called a **q-value**.[^cummean]
 
 [^cummean]: This approach uses the `cummean` function from dplyr, short for "cumulative mean". For example, `cummean(c(1, 2, 6, 10))` returns `(1, 1.5, 3, 4.75)`.
 
@@ -233,6 +233,6 @@ Before we move on, there's an interesting statistical implication to this analys
 
 But it's relevant to note that the q-value was originally defined in terms of null hypothesis significance testing, particularly as a transformation of p-values under multiple testing [@Storey:2003p1760]. By calculating, and then averaging, the posterior error probability, we've found another way to control FDR. This connection is explored in two great papers from my former advisor, [@Storey:2003p1086] and [@Käll2008].
 
-There are some notable differences between our approach here and typical FDR control.[^gelman], but this is a great example of the sometimes underappreciated technique of examining the frequentist properties of Bayesian approaches- and, conversely, understanding the Bayesian interpretations of frequentist goals.
+There are some notable differences between our approach here and typical FDR control[^gelman], but this is a great example of the sometimes underappreciated technique of examining the frequentist properties of Bayesian approaches- and, conversely, understanding the Bayesian interpretations of frequentist goals.
 
 [^gelman]: One major difference is that we aren't defining a null hypothesis (we aren't assuming any players have a batting average exactly *equal* to .300), but are instead trying to avoid [what Andrew Gelman calls "Type S errors"](http://andrewgelman.com/2004/12/29/type_1_type_2_t/): getting the "sign" of an effect wrong.
