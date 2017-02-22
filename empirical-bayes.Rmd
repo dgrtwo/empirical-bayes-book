@@ -190,7 +190,6 @@ career_eb %>%
   arrange(eb_estimate) %>%
   head(5) %>%
   kable(booktabs = TRUE)
-options(digits = 1)
 ```
 
 Notice that in each of these cases, empirical Bayes didn't simply pick the players who had 1 or 2 at-bats and hit on 100% of them. It found players who generally batted well, or poorly, across a long career. What a load off of our minds: we can start using these empirical Bayes estimates in downstream analyses and algorithms, and not worry that we're accidentally letting $0/1$ or $1/1$ cases ruin everything.
