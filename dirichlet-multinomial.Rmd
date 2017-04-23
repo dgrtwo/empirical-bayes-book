@@ -162,7 +162,7 @@ In the batting model, each of these rows could represent one of the categories o
 
 ### Dirichlet distribution
 
-The binomial had two categories (success and failure), and it had a convenient conjuate prior of the beta distribution. This meant that if our prior was a beta distribution and you observed some evidence, out posterior would also be a beta distribution.
+The binomial had two categories (success and failure), and it had a convenient conjugate prior of the beta distribution. This meant that if our prior was a beta distribution and you observed some evidence, our posterior would also be a beta distribution.
 
 There's an equivalent conjugate prior for the multinomial distribution, which is called the **Dirichlet distribution**. Instead of parameters $\alpha$ and $\beta$ like the beta distribution, it has parameters $\alpha_{1\ldots k}$: one value for each category of outcome.
 
