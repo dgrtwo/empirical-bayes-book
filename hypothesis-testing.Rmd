@@ -98,7 +98,7 @@ career_eb <- career_eb %>%
     mutate(PEP = pbeta(.3, alpha1, beta1))
 ```
 
-What can examine the distribution of the PEP across players in Figure \@ref(fig:pephistogram). Unsurprisingly, for most players, it's almost certain that they *don't* belong in the hall of fame: we know that their batting averages are below .300. If they were included, it is almost certain that they would be an error. In the middle are the borderline players: the ones where we're not sure. And down there close to 0 are the rare but proud players who we're (effectively) certain belong in the hall of fame.
+We can examine the distribution of the PEP across players in Figure \@ref(fig:pephistogram). Unsurprisingly, for most players, it's almost certain that they *don't* belong in the hall of fame: we know that their batting averages are below .300. If they were included, it is almost certain that they would be an error. In the middle are the borderline players: the ones where we're not sure. And down there close to 0 are the rare but proud players who we're (effectively) certain belong in the hall of fame.
 
 ```{r pephistogram, echo = FALSE, dependson = "PEP", fig.cap = "Histogram of posterior error probability (PEP) values across all players."}
 ggplot(career_eb, aes(PEP)) +
