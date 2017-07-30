@@ -191,7 +191,7 @@ combined %>%
   labs(color = "")
 ```
 
-These are sorted in order of how many times a player went up to bat (thus, how much information we have about them). Notice that once there's enough information, the credible intervals and confidence intervals are nearly identical. But in cases where batters got 1 or 2 hits out of 10, the credible interval is much narrower than the credible interval. This is because empirical Bayes brings in our knowledge from the full data, just as it did for the point estimate, so that we know it's not plausible for a batter to have an average close to 0 or as high as .5.
+These are sorted in order of how many times a player went up to bat (thus, how much information we have about them). Notice that once there's enough information, the credible intervals and confidence intervals are nearly identical. But in cases where batters got 1 or 2 hits out of 10, the credible interval is much narrower than the confidence interval. This is because empirical Bayes brings in our knowledge from the full data, just as it did for the point estimate, so that we know it's not plausible for a batter to have an average close to 0 or as high as .5.
 
 ### Calculating confidence intervals
 
