@@ -80,7 +80,7 @@ career_eb %>%
   labs(x = "Batting average")
 ```
 
-We can see that there is a nonzero probability (shaded) that his true probability of hitting is less than .3. We can calulate this probability with the cumulative distribution function (CDF) of the beta distribution, which in R is computed by the [pbeta](https://stat.ethz.ch/R-manual/R-patched/library/stats/html/Beta.html) function.
+We can see that there is a nonzero probability (shaded) that his true probability of hitting is less than .3. We can calculate this probability with the cumulative distribution function (CDF) of the beta distribution, which in R is computed by the [pbeta](https://stat.ethz.ch/R-manual/R-patched/library/stats/html/Beta.html) function.
 
 ```{r dependson = "lahman_05"}
 career_eb %>%
@@ -185,7 +185,7 @@ mean(head(sorted_PEP$PEP, 200))
 
 ## Q-values
 
-We could experiment with many thresholds to get our desired FDR for each. But it's even easier just to compute them all thresholds at once, by computing the cumulative mean of all the (sorted) posterior error probabilities. This cumulative mean is called a **q-value**.[^cummean]
+We could experiment with many thresholds to get our desired FDR for each. But it's even easier just to compute them all at once, by computing the cumulative mean of all the (sorted) posterior error probabilities. This cumulative mean is called a **q-value**.[^cummean]
 
 [^cummean]: This approach uses the `cummean` function from dplyr, short for "cumulative mean". For example, `cummean(c(1, 2, 6, 10))` returns `(1, 1.5, 3, 4.75)`.
 
@@ -233,6 +233,6 @@ Before we move on, there's an interesting statistical implication to this analys
 
 But it's relevant to note that the q-value was originally defined in terms of null hypothesis significance testing, particularly as a transformation of p-values under multiple testing [@Storey:2003p1760]. By calculating, and then averaging, the posterior error probability, we've found another way to control FDR. This connection is explored in two great papers from my former advisor, [@Storey:2003p1086] and [@Käll2008].
 
-There are some notable differences between our approach here and typical FDR control.[^gelman], but this is a great example of the sometimes underappreciated technique of examining the frequentist properties of Bayesian approaches- and, conversely, understanding the Bayesian interpretations of frequentist goals.
+There are some notable differences between our approach here and typical FDR control[^gelman], but this is a great example of the sometimes underappreciated technique of examining the frequentist properties of Bayesian approaches- and, conversely, understanding the Bayesian interpretations of frequentist goals.
 
 [^gelman]: One major difference is that we aren't defining a null hypothesis (we aren't assuming any players have a batting average exactly *equal* to .300), but are instead trying to avoid [what Andrew Gelman calls "Type S errors"](http://andrewgelman.com/2004/12/29/type_1_type_2_t/): getting the "sign" of an effect wrong.
