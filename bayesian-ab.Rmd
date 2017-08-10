@@ -17,7 +17,7 @@ Well, Mike Piazza has a slightly higher career batting average (2127 hits / 6911
 
 In this series of posts about an empirical Bayesian approach to batting statistics, we've been estimating batting averages by modeling them as a binomial distribution with a beta prior. But we've been looking at a single batter at a time. What if we want to compare *two* batters, find a probability that one is better than the other, and estimate *by how much*?
 
-This is a topic rather relevant to my own work and to the data science field, because understanding the difference between two proportions is important in **A/B testing**. One of the most common examples of A/B testing is comparing clickthrough rates ("out of X impressions, there have been Y clicks")- which on the surface is similar to our batting average estimation problem ("out of X at-bats, there have been Y hits"").[^bayesianAB]
+This is a topic rather relevant to my own work and to the data science field, because understanding the difference between two proportions is important in **A/B testing**. One of the most common examples of A/B testing is comparing clickthrough rates ("out of X impressions, there have been Y clicks")- which on the surface is similar to our batting average estimation problem ("out of X at-bats, there have been Y hits").[^bayesianAB]
 
 [^bayesianAB]: The differences between frequentist and Bayesian A/B testing is a topic I've [blogged about in greater depth](http://varianceexplained.org/r/bayesian-ab-testing/), particularly about the problem of early stopping
 
@@ -95,7 +95,7 @@ two_players %>%
   labs(x = "Batting average", color = "")
 ```
 
-These posterior distributions (Figure \@ref(fig:aaronpiazza)) are therefore a probabilistic representation of our *uncertainty* in each estimate. When asking the probability Piazza is better, we're asking "if I picked a random draw from Piazza's distribution and a random draw from Aaron's, what's the probability Piazza is higher"?
+These posterior distributions (Figure \@ref(fig:aaronpiazza)) are therefore a probabilistic representation of our *uncertainty* in each estimate. When asking the probability Piazza is better, we're asking "if I picked a random draw from Piazza's distribution and a random draw from Aaron's, what's the probability Piazza's is higher"?
 
 Well, notice that those two distributions overlap *a lot*! There's enough uncertainty in each of those estimates that Aaron could easily be better than Piazza.
 
