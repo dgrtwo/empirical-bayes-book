@@ -9,7 +9,7 @@ library(ggplot2)
 theme_set(theme_bw())
 ```
 
-In Chapter \@ref(empirical-bayes), we explored the method of empirical Bayes estimation to calculate useful proportions out of many pairs of success/total counts (e.g. $0/1$, $3/10$, $235/1000$). If we a batter gets with 0 hits in 2 at-bats, or 1 hit in 1 at-bat, we know we can't trust those proportions, and we can instead use information from the overall distribution (in the form of a prior) to improve our guess. Empirical Bayes gives a single value for each player that can be reliably used as an estimate.
+In Chapter \@ref(empirical-bayes), we explored the method of empirical Bayes estimation to calculate useful proportions out of many pairs of success/total counts (e.g. $0/1$, $3/10$, $235/1000$). If a batter gets 0 hits in 2 at-bats, or 1 hit in 1 at-bat, we know we can't trust those proportions, and we can instead use information from the overall distribution (in the form of a prior) to improve our guess. Empirical Bayes gives a single value for each player that can be reliably used as an estimate.
 
 But sometimes we want to know more than just our "best guess," and instead wish to know how much uncertainty is present in our point estimate. In many cases like this, statisticians would use a [binomial proportion confidence interval](https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval)[^binomialinterval], but this doesn't bring in information from our whole dataset the way that empirical Bayesian estimation does. For example, the confidence interval for someone who gets 1 hit out of 3 at-bats would be $(`r round(binom.test(1, 3)$conf.int[1], 4)`, `r round(binom.test(1, 3)$conf.int[2], 4)`)$. We can indeed be quite confident that that interval contains the true batting average... but from our knowledge of batting averages, we could have drawn a much tighter interval than that! There's no way that the player's real batting average is .1 or .8: it probably lies in the .2-.3 region that most other players' do.
 
@@ -139,7 +139,7 @@ yankee_1998_career %>%
   mutate(name = reorder(name, eb_estimate)) %>%
   ggplot(aes(eb_estimate, name)) +
   geom_point() +
-  geom_errorbarh(aes(xmin = low, xmax = high)) +
+  geom_errorbar(aes(xmin = low, xmax = high)) +
   geom_vline(xintercept = alpha0 / (alpha0 + beta0), color = "red", lty = 2) +
   xlab("Estimated batting average (w/ 95% interval)") +
   ylab("Player")
@@ -228,7 +228,7 @@ $$[\mbox{qbeta}(0.025, \alpha_{\mbox{low}}, \beta_{\mbox{low}}), \mbox{qbeta}(0.
 
 For example, the Clopper-Pearson confidence interval for a player with 10 hits out of 30 at-bats would be `qbeta(0.025, 10, 30 - 10 + 1)`=`r qbeta(0.025, 10, 30 - 10 + 1)` for the lower bound, and `qbeta(0.975, 10 + 1, 30 - 10)`=`r qbeta(0.975, 10 + 1, 30 - 10)` for the upper bound.
 
-Notice that the Jeffreys prior is identical to the Bayesian credible interval when $\alpha_0=\frac{1}{2};\beta_0=\frac{1}{2}$. This is called an **uninformative prior** or a [Jeffreys prior](https://en.wikipedia.org/wiki/Jeffreys_prior), and is basically pretending that we know *nothing* about batting averages. The Clopper-Pearson interval is a bit odder, since its priors are different for the lower and upper bounds.[^clopperpearson] This makes it slightly more conservative (wider) than the Jeffrey's prior, with a lower lower bound and a higher upper bound.
+Notice that the Jeffreys prior is identical to the Bayesian credible interval when $\alpha_0=\frac{1}{2};\beta_0=\frac{1}{2}$. This is called an **uninformative prior** or a [Jeffreys prior](https://en.wikipedia.org/wiki/Jeffreys_prior), and is basically pretending that we know *nothing* about batting averages. The Clopper-Pearson interval is a bit odder, since its priors are different for the lower and upper bounds.[^clopperpearson] This makes it slightly more conservative (wider) than the Jeffreys prior, with a lower lower bound and a higher upper bound.
 
 [^clopperpearson]: In fact Clopper-Pearson isn't using a proper prior for either, since it is effectively setting $\alpha_0=0$ for the low bound and $\beta_0=0$ for the high bound, which are both illegal parameters for the beta distribution.
 
