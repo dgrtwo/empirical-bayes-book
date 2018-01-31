@@ -110,13 +110,13 @@ $$\frac{\alpha}{\alpha+\beta}$$
 
 Thus, after 100 hits of 300 at-bats, the expected value of the new beta distribution is
 
-$$\frac{82+100}{82+100+219+200}=.303$$
+$$\frac{81+100}{81+100+219+200}=.302$$
 
 Notice that it is lower than the raw estimate of $\frac{100}{100+200}=.333$, but higher than the estimate you started the season with $\frac{81}{81+219}=.270$: it is a combination of our prior expectations and our estimates. You might notice that this formula is equivalent to adding a "head start" to the number of hits and non-hits of a player: you're saying "start each player off in the season with 81 hits and 219 non hits on his record").
 
 ## Conjugate prior {#conjugate-prior}
 
-Why is it so easy to update the beta distribution from $\beta(\alpha_0,\beta_0)$ to $\beta(\alpha_0+H,\beta_0)$? Because the beta distribution is the **conjugate prior** of the binomial: that just means that it's a particularly convenient distribution. The math for proving this is [all available](http://en.wikipedia.org/wiki/Conjugate_prior#Example). But how can we get a feel for it?
+Why is it so easy to update the beta distribution from $\beta(\alpha_0,\beta_0)$ to $\beta(\alpha_0+H,\beta_0+AB)$? Because the beta distribution is the **conjugate prior** of the binomial: that just means that it's a particularly convenient distribution. The math for proving this is [all available](http://en.wikipedia.org/wiki/Conjugate_prior#Example). But how can we get a feel for it?
 
 Imagine you were a talent scout trying to estimate the "true batting average"- the probability of a hit- for a player with a 100/300 record. It would be nice to say "of all the players I've ever seen that batted 100/300, how good did they turn out to be?" This is unrealistic- we haven't seen very many players historically with that exact record. But when we have our **prior distribution**, we can build our own dataset of players, and look at the ones with 100/300.
 
