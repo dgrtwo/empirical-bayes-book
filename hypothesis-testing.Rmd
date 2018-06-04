@@ -167,7 +167,7 @@ This means that of these 100 players, we expect that about five and a half of th
 
 [^linearity]: If it's not clear why you can add up the probabilities like that, check out [this explanation of linearity of expected value](https://www.quora.com/What-is-an-intuitive-explanation-for-the-linearity-of-expectation)).
 
-Note that we're calculating the FDR as $4.43 / 100=4.43\%$. Thus, we're really computing the *mean* PEP: the average Posterior Error Probability.
+Note that we're calculating the FDR as $5.87 / 100=5.87\%$. Thus, we're really computing the *mean* PEP: the average Posterior Error Probability.
 
 ```{r dependson = "PEP"}
 mean(top_players$PEP)
