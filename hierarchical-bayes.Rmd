@@ -126,7 +126,7 @@ tidy(fit2)
 
 According to our beta-binomial regression, there is indeed a statistically significant advantage to being left-handed, with lefties getting a hit about 1% more often. This may seem like a small effect, but over the course of multiple games it could certainly make a difference. In contrast, there's apparently no detectable advantage to being able to bat with both hands.
 
-For our empirical Bayes estimation, this means every combination of handedness and AB now has its own prior, as shown in Figure \@ref(fig:leftrightprior). Left-handed batters, and those who had more hits in their career, would have generally higher expectations.
+For our empirical Bayes estimation, this means every combination of handedness and AB now has its own prior, as shown in Figure \@ref(fig:leftrightprior). Left-handed batters, and those who had more ABs in their career, would have generally higher expectations.
 
 ```{r leftrightprior, dependson = "fit2", echo = FALSE, fig.cap = "The prior distribution according to the hierarchical model for players with particular combinations of AB and handedness."}
 sigma <- fitted(fit2, "sigma")[1]
