@@ -163,11 +163,11 @@ Well, we know the PEP of each of these 100 players, which is the probability tha
 sum(top_players$PEP)
 ```
 
-This means that of these 100 players, we expect that about four and a half of them are false discoveries. Now, we don't know *which* four or five players we are mistaken about! (If we did, we could just kick them out of the hall). But we can make predictions about the players in aggregate. Here, we can see that taking the top 100 players would get pretty close to our goal of FDR = 5%.
+This means that of these 100 players, we expect that about five and a half of them are false discoveries. Now, we don't know *which* five or six players we are mistaken about! (If we did, we could just kick them out of the hall). But we can make predictions about the players in aggregate. Here, we can see that taking the top 100 players would get pretty close to our goal of FDR = 5%.
 
 [^linearity]: If it's not clear why you can add up the probabilities like that, check out [this explanation of linearity of expected value](https://www.quora.com/What-is-an-intuitive-explanation-for-the-linearity-of-expectation)).
 
-Note that we're calculating the FDR as $4.43 / 100=4.43\%$. Thus, we're really computing the *mean* PEP: the average Posterior Error Probability.
+Note that we're calculating the FDR as $5.46 / 100=5.46\%$. Thus, we're really computing the *mean* PEP: the average Posterior Error Probability.
 
 ```{r dependson = "PEP"}
 mean(top_players$PEP)
