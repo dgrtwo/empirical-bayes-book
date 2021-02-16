@@ -147,7 +147,7 @@ crossing(bats = c("L", "R"),
        lty = "Batting hand")
 ```
 
-Note that this prior can still easily be overcome by enough evidence. For example, consider our hypothetical pair of battters from the introduction, where each has a 30% success rate, but where one is left-handed and one right-handed. If the batters had few at-bats (such as 10 or 100), we'd guess that the left-handed batter was better, but the posterior for the two will converge as AB increases to 1000 or 10,000 (Figure \@ref(fig:credintervals30)).
+Note that this prior can still easily be overcome by enough evidence. For example, consider our hypothetical pair of batters from the introduction, where each has a 30% success rate, but where one is left-handed and one right-handed. If the batters had few at-bats (such as 10 or 100), we'd guess that the left-handed batter was better, but the posterior for the two will converge as AB increases to 1000 or 10,000 (Figure \@ref(fig:credintervals30)).
 
 ```{r credintervals30, dependson = "plot_left_right", echo = FALSE, fig.cap = "Empirical Bayes estimates and 95\\% credible intervals for two hypothetical batters with a 30\\% success rate, one left-handed and one right-handed."}
 crossing(bats = c("L", "R"),
